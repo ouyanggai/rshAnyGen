@@ -1,0 +1,11 @@
+-r ../../requirements-shared.txt
+
+# LangGraph / LangChain
+langgraph>=0.0.20
+langchain>=0.1.0
+langchain-openai>=0.0.2
+
+# LLM 客户端
+dashscope>=1.14.0
+zhipuai>=1.0.0
+openai>=1.10.0
