@@ -63,9 +63,19 @@ class ConfigLoader:
         return value if value is not None else default
 
     def _resolve_env_var(self, value: str) -> str:
-        """解析环境变量，支持默认值 ${VAR:-default}"""
+        """
+        解析环境变量，支持默认值 ${VAR:-default}
+
+        优先使用环境变量，如果环境变量不存在或为空，则使用默认值
+        """
         match = re.match(r'\$\{([^}:]+)(?::-([^}]*))?\}', value)
         if match:
             var_name, default_val = match.groups()
-            return os.getenv(var_name, default_val or '')
+            env_val = os.getenv(var_name)
+            # 如果环境变量不存在，或提供了默认值且环境变量为空字符串
+            if env_val is None:
+                return default_val or ''
+            if env_val == '' and default_val is not None:
+                return default_val
+            return env_val
         return os.getenv(value[2:-1], '')
