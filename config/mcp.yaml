@@ -1,0 +1,24 @@
+# MCP 服务配置
+servers:
+  baidu-search:
+    name: "百度搜索"
+    transport: "stdio"
+    command: "python"
+    args: ["-m", "mcp_baidu_search.server"]
+    env:
+      PROXY_URL: "${PROXY_URL:-}"
+    timeout: 30000
+    enabled: true
+
+  knowledge:
+    name: "内部知识库"
+    transport: "stdio"
+    command: "python"
+    args: ["-m", "mcp_knowledge.server"]
+    timeout: 10000
+    enabled: true
+
+client:
+  connection_timeout: 5000
+  request_timeout: 30000
+  max_retries: 2

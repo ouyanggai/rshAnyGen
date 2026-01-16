@@ -1,0 +1,60 @@
+# rshAnyGen 默认配置
+app:
+  name: "rshAnyGen"
+  version: "0.1.0"
+  environment: "development"
+  log_level: "INFO"
+
+# 服务端口（9300+ 专属段）
+ports:
+  web_ui: 9300
+  gateway: 9301
+  orchestrator: 9302
+  skills_registry: 9303
+  mcp_manager: 9304
+  rag_pipeline: 9305
+
+# 外部依赖端口
+dependencies:
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    ttl: 3600
+  milvus:
+    host: "localhost"
+    port: 19530
+  qdrant:
+    host: "localhost"
+    port: 6333
+
+# LLM 默认配置
+llm:
+  provider: "qwen"
+  model: "qwen-max"
+  temperature: 0.7
+  max_tokens: 2000
+  timeout: 30
+
+# 向量数据库默认配置
+vector_db:
+  provider: "milvus"
+  host: "localhost"
+  port: 19530
+  collection: "knowledge_base"
+  dimension: 1024
+  index_type: "HNSW"
+  metric_type: "COSINE"
+
+# 嵌入服务默认配置
+embedding:
+  provider: "qwen"
+  model: "text-embedding-v3"
+  batch_size: 32
+  dimension: 1024
+
+# 重排服务默认配置
+reranker:
+  provider: "qwen"
+  model: "rerank-v2"
+  top_n: 5

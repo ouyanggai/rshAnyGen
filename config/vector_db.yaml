@@ -1,0 +1,16 @@
+# 向量数据库配置
+providers:
+  milvus:
+    host: "${MILVUS_HOST:-localhost}"
+    port: "${MILVUS_PORT:-19530}"
+    user: "${MILVUS_USER:-}"
+    password: "${MILVUS_PASSWORD:-}"
+    index_type: "HNSW"
+    metric_type: "COSINE"
+
+  qdrant:
+    host: "${QDRANT_HOST:-localhost}"
+    port: "${QDRANT_PORT:-6333}"
+    api_key: "${QDRANT_API_KEY:-}"
+
+active: "milvus"

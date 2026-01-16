@@ -1,0 +1,32 @@
+# LLM 提供商配置
+providers:
+  qwen:
+    api_key: "${QWEN_API_KEY}"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      - "qwen-max"
+      - "qwen-plus"
+      - "qwen-turbo"
+
+  zhipu:
+    api_key: "${ZHIPU_API_KEY}"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    models:
+      - "glm-4-plus"
+      - "glm-4"
+
+  kimi:
+    api_key: "${KIMI_API_KEY}"
+    base_url: "https://api.moonshot.cn/v1"
+    models:
+      - "moonshot-v1-128k"
+
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "https://api.openai.com/v1"
+    models:
+      - "gpt-4o"
+      - "gpt-4o-mini"
+
+# 当前使用的提供商
+active: "qwen"

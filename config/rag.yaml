@@ -1,0 +1,22 @@
+# RAG 管线配置
+chunking:
+  strategy: parent_child
+  parent:
+    size: 1000
+    overlap: 200
+  child:
+    size: 300
+    overlap: 100
+  separators:
+    - "\n\n"
+    - "\n"
+    - "。"
+    - "！"
+    - "？"
+
+retrieval:
+  hybrid: true
+  vector_top_k: 50
+  bm25_top_k: 50
+  fusion_method: rrf
+  rrf_k: 60

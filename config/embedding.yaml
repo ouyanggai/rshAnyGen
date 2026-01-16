@@ -1,0 +1,29 @@
+# 嵌入/重排服务配置
+embedding_providers:
+  qwen:
+    api_key: "${QWEN_API_KEY}"
+    model: "text-embedding-v3"
+    dimension: 1024
+
+  zhipu:
+    api_key: "${ZHIPU_API_KEY}"
+    model: "embedding-3"
+    dimension: 1024
+
+  cohere:
+    api_key: "${COHERE_API_KEY}"
+    model: "embed-multilingual-v4.0"
+    dimension: 1024
+
+active_embedding: "qwen"
+
+reranker_providers:
+  qwen:
+    api_key: "${QWEN_API_KEY}"
+    model: "rerank-v2"
+
+  cohere:
+    api_key: "${COHERE_API_KEY}"
+    model: "rerank-v4.0"
+
+active_reranker: "qwen"
