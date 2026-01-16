@@ -10,6 +10,26 @@ logger_manager = LogManager("orchestrator")
 logger = logger_manager.get_logger()
 
 
+def _get_validated_config(key: str, default: Any, expected_type: type) -> Any:
+    """验证并返回配置值
+
+    Args:
+        key: 配置键
+        default: 默认值
+        expected_type: 期望的类型
+
+    Returns:
+        验证后的配置值
+    """
+    value = config.get(key, default)
+    if not isinstance(value, expected_type):
+        logger.warning(
+            f"Invalid config {key}: {value}, using default {default}"
+        )
+        return default
+    return value
+
+
 # 技能映射配置
 SKILL_MAPPING = {
     "search": "web_search",
@@ -46,8 +66,8 @@ async def skill_selector(state: AgentState) -> AgentState:
         skill_parameters.update(
             {
                 "search_type": "web",
-                "max_results": config.get(
-                    "tools.web_search.max_results", 5
+                "max_results": _get_validated_config(
+                    "tools.web_search.max_results", 5, int
                 ),
             }
         )
@@ -55,7 +75,9 @@ async def skill_selector(state: AgentState) -> AgentState:
         skill_parameters.update(
             {
                 "retrieval_type": "vector",
-                "top_k": config.get("rag.retrieval.top_k", 3),
+                "top_k": _get_validated_config(
+                    "rag.retrieval.top_k", 3, int
+                ),
             }
         )
 

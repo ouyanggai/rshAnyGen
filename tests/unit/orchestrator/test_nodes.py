@@ -524,3 +524,97 @@ def test_build_prompt_knowledge_with_docs():
     prompt = _build_prompt(state)
     assert "知识库文档" in prompt
     assert "文档内容" in prompt
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_llm_generator_metadata_init():
+    """测试：metadata 字段初始化"""
+    from apps.orchestrator.graph.nodes.llm_generator import llm_generator
+
+    state = AgentState(
+        session_id="test-014",
+        user_message="test",
+        messages=[],
+        intent="chat"
+        # 故意不设置 metadata
+    )
+
+    mock_response = MagicMock()
+    mock_response.content = "测试响应"
+
+    with patch(
+        "langchain_openai.ChatOpenAI"
+    ) as mock_llm:
+        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+
+        result = await llm_generator(state)
+
+        # 验证 metadata 被正确初始化
+        assert isinstance(result["metadata"], dict)
+        assert "model" in result["metadata"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_llm_generator_metadata_existing():
+    """测试：metadata 字段已存在时的处理"""
+    from apps.orchestrator.graph.nodes.llm_generator import llm_generator
+
+    state = AgentState(
+        session_id="test-015",
+        user_message="test",
+        messages=[],
+        intent="chat",
+        metadata={"existing_key": "existing_value"}
+    )
+
+    mock_response = MagicMock()
+    mock_response.content = "测试响应"
+
+    with patch(
+        "langchain_openai.ChatOpenAI"
+    ) as mock_llm:
+        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+
+        result = await llm_generator(state)
+
+        # 验证现有 metadata 被保留且新增 model 字段
+        assert isinstance(result["metadata"], dict)
+        assert "model" in result["metadata"]
+        assert result["metadata"]["existing_key"] == "existing_value"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_skill_selector_invalid_config():
+    """测试：配置值验证 - 无效配置使用默认值"""
+    from apps.orchestrator.graph.nodes.skill_selector import skill_selector
+
+    state = AgentState(
+        session_id="test-016",
+        user_message="搜索",
+        messages=[],
+        intent="search",
+        selected_skill=None,
+        skill_parameters=None,
+        tool_call_approved=True,
+        retrieved_docs=[],
+        reranked_docs=[],
+        tool_results=None,
+        final_answer="",
+        citations=[],
+        metadata={},
+    )
+
+    # Mock config 返回无效类型
+    with patch(
+        "apps.orchestrator.graph.nodes.skill_selector.config.get"
+    ) as mock_config:
+        # 第一次调用返回无效类型（字符串而非整数）
+        mock_config.side_effect = lambda key, default: "invalid" if key == "tools.web_search.max_results" else default
+
+        result = await skill_selector(state)
+
+        # 验证使用了默认值 5
+        assert result["skill_parameters"]["max_results"] == 5

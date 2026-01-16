@@ -36,6 +36,10 @@ async def llm_generator(state: AgentState) -> AgentState:
     try:
         response = await llm.ainvoke(prompt)
         state["final_answer"] = response.content
+
+        # 确保 metadata 字段已初始化
+        if not isinstance(state.get("metadata"), dict):
+            state["metadata"] = {}
         state["metadata"]["model"] = config.get("llm.model")
 
         logger.info(
