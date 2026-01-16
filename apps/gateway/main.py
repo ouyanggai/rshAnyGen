@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
 from apps.gateway.middleware import SessionMiddleware
-from apps.gateway.routers import chat
+from apps.gateway.routers import chat, skills
 
 # 加载配置
 config = ConfigLoader()
@@ -33,6 +33,7 @@ app.add_middleware(SessionMiddleware)
 
 # 注册路由
 app.include_router(chat.router)
+app.include_router(skills.router)
 
 @app.get("/health")
 async def health_check():
