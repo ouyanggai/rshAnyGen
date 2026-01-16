@@ -15,7 +15,7 @@ def test_session_middleware_creates_session_id():
     app = FastAPI()
 
     # 添加中间件（不连接 Redis）
-    app.add_middleware(SessionMiddleware, redis_host="localhost", redis_port=6379)
+    app.add_middleware(SessionMiddleware)
 
     @app.get("/test")
     async def test_endpoint(request: Request):

@@ -9,12 +9,15 @@ from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
 from apps.gateway.models import ChatRequest
 
+# 使用共享配置实例
 config = ConfigLoader()
-logger_manager = LogManager("gateway", log_dir=config.get("log_dir", "logs"))
+# 使用共享日志管理器
+logger_manager = LogManager("gateway")
 logger = logger_manager.get_logger()
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
+# 从配置文件读取编排器 URL
 ORCHESTRATOR_URL = config.get(
     "services.orchestrator.url",
     "http://localhost:9302"

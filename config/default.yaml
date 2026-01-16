@@ -14,6 +14,19 @@ ports:
   mcp_manager: 9304
   rag_pipeline: 9305
 
+# 服务间通信配置
+services:
+  orchestrator:
+    url: "http://localhost:9302"
+  skills_registry:
+    url: "http://localhost:9303"
+
+# Gateway 配置
+gateway:
+  cors_origins:
+    - "http://localhost:9300"
+    - "http://localhost:3000"
+
 # 外部依赖端口
 dependencies:
   redis:

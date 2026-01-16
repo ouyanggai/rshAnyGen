@@ -6,12 +6,14 @@ from pydantic import BaseModel
 from apps.shared.logger import LogManager
 from apps.gateway.models import SkillInfo, SkillListResponse
 
+# 使用共享日志管理器
+logger_manager = LogManager("gateway")
+logger = logger_manager.get_logger()
+
+
 class ToggleRequest(BaseModel):
     """Toggle 请求"""
     enabled: bool
-
-logger_manager = LogManager("gateway")
-logger = logger_manager.get_logger()
 
 router = APIRouter(prefix="/api/v1/skills", tags=["skills"])
 
