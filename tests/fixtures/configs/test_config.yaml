@@ -1,0 +1,7 @@
+# 测试配置
+app:
+  name: "test_app"
+  version: "1.0.0"
+
+ports:
+  test_service: 9999
