@@ -24,11 +24,13 @@ class TestLogManager:
         """测试：初始化时应创建服务日志目录"""
         from apps.shared.logger import LogManager
 
-        LogManager("gateway", log_dir=str(temp_log_dir))
-
-        service_log_dir = temp_log_dir / "gateway"
-        assert service_log_dir.exists()
-        assert service_log_dir.is_dir()
+        manager = LogManager("gateway", log_dir=str(temp_log_dir))
+        try:
+            service_log_dir = temp_log_dir / "gateway"
+            assert service_log_dir.exists()
+            assert service_log_dir.is_dir()
+        finally:
+            manager.close()
 
     @pytest.mark.unit
     def test_logger_returns_valid_logger(self, temp_log_dir):
@@ -36,10 +38,13 @@ class TestLogManager:
         from apps.shared.logger import LogManager
 
         manager = LogManager("orchestrator", log_dir=str(temp_log_dir))
-        logger = manager.get_logger()
+        try:
+            logger = manager.get_logger()
 
-        assert isinstance(logger, logging.Logger)
-        assert logger.name == "orchestrator"
+            assert isinstance(logger, logging.Logger)
+            assert logger.name == "orchestrator"
+        finally:
+            manager.close()
 
     @pytest.mark.unit
     def test_log_file_created_on_message(self, temp_log_dir):
@@ -47,13 +52,16 @@ class TestLogManager:
         from apps.shared.logger import LogManager
 
         manager = LogManager("gateway", log_dir=str(temp_log_dir))
-        logger = manager.get_logger()
+        try:
+            logger = manager.get_logger()
 
-        logger.info("Test message")
+            logger.info("Test message")
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        log_file = temp_log_dir / "gateway" / f"gateway-{today}.log"
-        assert log_file.exists()
+            today = datetime.now().strftime("%Y-%m-%d")
+            log_file = temp_log_dir / "gateway" / f"gateway-{today}.log"
+            assert log_file.exists()
+        finally:
+            manager.close()
 
     @pytest.mark.unit
     def test_log_file_contains_message(self, temp_log_dir):
@@ -61,17 +69,20 @@ class TestLogManager:
         from apps.shared.logger import LogManager
 
         manager = LogManager("skills", log_dir=str(temp_log_dir))
-        logger = manager.get_logger()
+        try:
+            logger = manager.get_logger()
 
-        test_msg = "Test log message for verification"
-        logger.info(test_msg)
+            test_msg = "Test log message for verification"
+            logger.info(test_msg)
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        log_file = temp_log_dir / "skills" / f"skills-{today}.log"
+            today = datetime.now().strftime("%Y-%m-%d")
+            log_file = temp_log_dir / "skills" / f"skills-{today}.log"
 
-        content = log_file.read_text(encoding='utf-8')
-        assert test_msg in content
-        assert "[INFO]" in content
+            content = log_file.read_text(encoding='utf-8')
+            assert test_msg in content
+            assert "[INFO]" in content
+        finally:
+            manager.close()
 
     @pytest.mark.unit
     def test_multiple_services_separate_logs(self, temp_log_dir):
@@ -81,18 +92,41 @@ class TestLogManager:
         gateway_mgr = LogManager("gateway", log_dir=str(temp_log_dir))
         orchestrator_mgr = LogManager("orchestrator", log_dir=str(temp_log_dir))
 
-        gateway_mgr.get_logger().info("Gateway message")
-        orchestrator_mgr.get_logger().info("Orchestrator message")
+        try:
+            gateway_mgr.get_logger().info("Gateway message")
+            orchestrator_mgr.get_logger().info("Orchestrator message")
 
+            today = datetime.now().strftime("%Y-%m-%d")
+            gateway_log = temp_log_dir / "gateway" / f"gateway-{today}.log"
+            orchestrator_log = temp_log_dir / "orchestrator" / f"orchestrator-{today}.log"
+
+            gateway_content = gateway_log.read_text(encoding='utf-8')
+            orchestrator_content = orchestrator_log.read_text(encoding='utf-8')
+
+            assert "Gateway message" in gateway_content
+            assert "Orchestrator message" not in gateway_content
+
+            assert "Orchestrator message" in orchestrator_content
+            assert "Gateway message" not in orchestrator_content
+        finally:
+            gateway_mgr.close()
+            orchestrator_mgr.close()
+
+    @pytest.mark.unit
+    def test_context_manager_closes_handlers(self, temp_log_dir):
+        """测试：上下文管理器应自动关闭处理器"""
+        from apps.shared.logger import LogManager
+
+        with LogManager("test_service", log_dir=str(temp_log_dir)) as manager:
+            logger = manager.get_logger()
+            logger.info("Context manager test")
+
+        # 验证日志已写入（在 close 之前）
         today = datetime.now().strftime("%Y-%m-%d")
-        gateway_log = temp_log_dir / "gateway" / f"gateway-{today}.log"
-        orchestrator_log = temp_log_dir / "orchestrator" / f"orchestrator-{today}.log"
+        log_file = temp_log_dir / "test_service" / f"test_service-{today}.log"
+        assert log_file.exists()
+        content = log_file.read_text(encoding='utf-8')
+        assert "Context manager test" in content
 
-        gateway_content = gateway_log.read_text(encoding='utf-8')
-        orchestrator_content = orchestrator_log.read_text(encoding='utf-8')
-
-        assert "Gateway message" in gateway_content
-        assert "Orchestrator message" not in gateway_content
-
-        assert "Orchestrator message" in orchestrator_content
-        assert "Gateway message" not in orchestrator_content
+        # 验证处理器已关闭
+        assert len(manager.logger.handlers) == 0

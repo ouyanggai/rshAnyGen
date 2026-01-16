@@ -47,3 +47,18 @@ class LogManager:
     def get_logger(self) -> logging.Logger:
         """获取 logger 实例"""
         return self.logger
+
+    def close(self):
+        """关闭所有日志处理器，释放资源"""
+        for handler in self.logger.handlers[:]:
+            handler.close()
+            self.logger.removeHandler(handler)
+
+    def __enter__(self):
+        """支持上下文管理器协议"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """退出上下文时自动清理资源"""
+        self.close()
+        return False
