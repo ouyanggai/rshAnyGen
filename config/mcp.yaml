@@ -1,24 +1,28 @@
-# MCP 服务配置
+# MCP Server 配置文件
 servers:
+  # 百度搜索 MCP Server
   baidu-search:
-    name: "百度搜索"
-    transport: "stdio"
-    command: "python"
-    args: ["-m", "mcp_baidu_search.server"]
+    enabled: true
+    transport: stdio
+    command: python3
+    args:
+      - "-m"
+      - "apps.mcp_baidu_search.server"
     env:
-      PROXY_URL: "${PROXY_URL:-}"
-    timeout: 30000
-    enabled: true
+      PYTHONPATH: "."
 
-  knowledge:
-    name: "内部知识库"
-    transport: "stdio"
-    command: "python"
-    args: ["-m", "mcp_knowledge.server"]
-    timeout: 10000
-    enabled: true
+  # HTTP 示例服务器（可选）
+  # http-example:
+  #   enabled: false
+  #   transport: http
+  #   url: "http://localhost:8080/mcp"
+  #   headers:
+  #     Authorization: "Bearer your-token"
+  #   timeout: 30
 
-client:
-  connection_timeout: 5000
-  request_timeout: 30000
-  max_retries: 2
+  # SSE 示例服务器（可选）
+  # sse-example:
+  #   enabled: false
+  #   transport: sse
+  #   url: "http://localhost:8080/events"
+  #   timeout: 60
