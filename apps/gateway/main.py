@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
+from apps.gateway.middleware import SessionMiddleware
 
 # 加载配置
 config = ConfigLoader()
@@ -25,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 配置会话管理中间件
+app.add_middleware(SessionMiddleware)
 
 @app.get("/health")
 async def health_check():
