@@ -1,6 +1,6 @@
 """测试 Orchestrator 图节点"""
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, Mock
 
 from apps.orchestrator.graph.state import AgentState
 from apps.orchestrator.graph.nodes import (
@@ -34,15 +34,14 @@ async def test_intent_classifier_search():
     mock_response = MagicMock()
     mock_response.content = "search"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    # Mock the ChatOpenAI instance that get_chat_model returns
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "search"
-        mock_llm.return_value.ainvoke.assert_called_once()
 
 
 @pytest.mark.unit
@@ -68,11 +67,10 @@ async def test_intent_classifier_knowledge():
     mock_response = MagicMock()
     mock_response.content = "knowledge"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "knowledge"
@@ -101,11 +99,10 @@ async def test_intent_classifier_chat():
     mock_response = MagicMock()
     mock_response.content = "chat"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"
@@ -134,11 +131,10 @@ async def test_intent_classifier_invalid_intent():
     mock_response = MagicMock()
     mock_response.content = "invalid_intent"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"  # 默认值
@@ -164,13 +160,10 @@ async def test_intent_classifier_error_handling():
         metadata={},
     )
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(
-            side_effect=Exception("LLM error")
-        )
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"  # 错误时默认为 chat
@@ -305,11 +298,10 @@ async def test_llm_generator_chat():
     mock_response = MagicMock()
     mock_response.content = "你好！我是 AI 助手，很高兴为您服务。"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         assert result["final_answer"] == "你好！我是 AI 助手，很高兴为您服务。"
@@ -339,16 +331,15 @@ async def test_llm_generator_search_with_results():
     mock_response = MagicMock()
     mock_response.content = "根据搜索结果，最新的 AI 技术进展包括..."
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         assert result["final_answer"] == "根据搜索结果，最新的 AI 技术进展包括..."
         # 验证 prompt 包含搜索结果
-        call_args = mock_llm.return_value.ainvoke.call_args[0][0]
+        call_args = mock_llm_instance.ainvoke.call_args[0][0]
         assert "搜索结果" in call_args
 
 
@@ -378,16 +369,15 @@ async def test_llm_generator_knowledge_with_docs():
     mock_response = MagicMock()
     mock_response.content = "根据知识库文档，系统架构如下..."
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         assert result["final_answer"] == "根据知识库文档，系统架构如下..."
         # 验证 prompt 包含文档内容
-        call_args = mock_llm.return_value.ainvoke.call_args[0][0]
+        call_args = mock_llm_instance.ainvoke.call_args[0][0]
         assert "知识库文档" in call_args
 
 
@@ -411,13 +401,10 @@ async def test_llm_generator_error_handling():
         metadata={},
     )
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(
-            side_effect=Exception("LLM error")
-        )
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         assert result["final_answer"] == "抱歉，生成回答时出现错误。请稍后重试。"
@@ -543,11 +530,10 @@ async def test_llm_generator_metadata_init():
     mock_response = MagicMock()
     mock_response.content = "测试响应"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         # 验证 metadata 被正确初始化
@@ -572,11 +558,10 @@ async def test_llm_generator_metadata_existing():
     mock_response = MagicMock()
     mock_response.content = "测试响应"
 
-    with patch(
-        "langchain_openai.ChatOpenAI"
-    ) as mock_llm:
-        mock_llm.return_value.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm_instance = MagicMock()
+    mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
+    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await llm_generator(state)
 
         # 验证现有 metadata 被保留且新增 model 字段

@@ -2,9 +2,13 @@
 from .intent_classifier import intent_classifier
 from .skill_selector import skill_selector
 from .llm_generator import llm_generator
+from .tool_executor import tool_executor
+from .rag_retriever import rag_retriever
 
 __all__ = [
     "intent_classifier",
     "skill_selector",
     "llm_generator",
+    "tool_executor",
+    "rag_retriever",
 ]

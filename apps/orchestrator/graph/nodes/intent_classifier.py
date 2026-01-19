@@ -36,14 +36,10 @@ async def intent_classifier(state: AgentState) -> AgentState:
     message = HumanMessage(content=state["user_message"])
 
     # 调用 LLM（使用配置的提供商）
-    from langchain_openai import ChatOpenAI
+    from apps.orchestrator.services.llm_client import LLMClient
 
-    llm = ChatOpenAI(
-        base_url=config.get("llm.providers.qwen.base_url"),
-        api_key=config.get("llm.providers.qwen.api_key"),
-        model=config.get("llm.model", "qwen-max"),
-        temperature=0.1,  # 使用较低温度以获得更确定的结果
-    )
+    client = LLMClient()
+    llm = client.get_chat_model(temperature=0.1)
 
     try:
         response = await llm.ainvoke(

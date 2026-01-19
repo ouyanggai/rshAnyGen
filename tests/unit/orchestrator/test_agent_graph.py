@@ -16,6 +16,8 @@ def test_create_agent_graph():
     nodes = graph.nodes
     assert "intent_classifier" in nodes
     assert "skill_selector" in nodes
+    assert "rag_retriever" in nodes
+    assert "tool_executor" in nodes
     assert "llm_generator" in nodes
 
 
@@ -47,7 +49,7 @@ def test_graph_nodes_exist():
     graph = create_agent_graph()
 
     nodes = graph.nodes
-    expected_nodes = ["intent_classifier", "skill_selector", "llm_generator"]
+    expected_nodes = ["intent_classifier", "skill_selector", "tool_executor", "rag_retriever", "llm_generator"]
 
     for node_name in expected_nodes:
         assert node_name in nodes, f"Node {node_name} not found in graph"
@@ -144,7 +146,7 @@ def test_state_flow_routing():
         citations=[],
         metadata={},
     )
-    assert route_after_intent(state_knowledge) == "skill_selector"
+    assert route_after_intent(state_knowledge) == "rag_retriever"
 
     # 测试 chat 意图的路由
     state_chat = AgentState(

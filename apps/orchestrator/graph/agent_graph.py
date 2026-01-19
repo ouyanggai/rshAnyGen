@@ -7,6 +7,8 @@ from .nodes import (
     intent_classifier,
     skill_selector,
     llm_generator,
+    tool_executor,
+    rag_retriever
 )
 
 
@@ -14,7 +16,8 @@ def route_after_intent(state: AgentState) -> str:
     """意图识别后的路由决策
 
     根据分类的意图决定下一个节点：
-    - search/knowledge -> skill_selector
+    - search -> skill_selector
+    - knowledge -> rag_retriever
     - chat -> llm_generator
 
     Args:
@@ -24,36 +27,40 @@ def route_after_intent(state: AgentState) -> str:
         下一个节点的名称
     """
     intent = state.get("intent", "chat")
-    if intent in ["search", "knowledge"]:
-        # 需要工具技能，先选择技能
+    if intent == "search":
         return "skill_selector"
+    elif intent == "knowledge":
+        return "rag_retriever"
     else:
-        # 普通对话，直接生成
+        # chat or unknown
         return "llm_generator"
+
+
+def check_tool_approval(state: AgentState) -> str:
+    """检查工具调用是否获得批准"""
+    if state.get("tool_call_approved", True):
+        return "tool_executor"
+    return "llm_generator"  # Skip execution if not approved, let LLM explain or handle
 
 
 def create_agent_graph():
     """创建 Agent 编排图
 
-    构建完整的 LangGraph 工作流，包含以下节点：
-    1. intent_classifier - 意图识别
-    2. skill_selector - 技能选择
-    3. llm_generator - LLM 生成
-
-    Returns:
-        编译后的 LangGraph 实例，带内存检查点
+    构建完整的 LangGraph 工作流
     """
     workflow = StateGraph(AgentState)
 
     # 添加节点
     workflow.add_node("intent_classifier", intent_classifier)
     workflow.add_node("skill_selector", skill_selector)
+    workflow.add_node("tool_executor", tool_executor)
+    workflow.add_node("rag_retriever", rag_retriever)
     workflow.add_node("llm_generator", llm_generator)
 
     # 设置入口
     workflow.set_entry_point("intent_classifier")
 
-    # 添加条件边（使用内部路由函数）
+    # 添加条件边：意图识别 -> 分支
     def _route_after_intent(state: AgentState) -> str:
         return route_after_intent(state)
 
@@ -62,12 +69,18 @@ def create_agent_graph():
         _route_after_intent,
         {
             "skill_selector": "skill_selector",
+            "rag_retriever": "rag_retriever",
             "llm_generator": "llm_generator",
         },
     )
 
-    # 技能选择后统一进入 LLM 生成
-    workflow.add_edge("skill_selector", "llm_generator")
+    # 搜索分支：技能选择 -> 工具执行 -> LLM
+    # 这里可以添加审批逻辑，暂时直接连接
+    workflow.add_edge("skill_selector", "tool_executor")
+    workflow.add_edge("tool_executor", "llm_generator")
+
+    # RAG 分支：检索 -> LLM
+    workflow.add_edge("rag_retriever", "llm_generator")
 
     # LLM 生成后结束
     workflow.add_edge("llm_generator", END)
@@ -78,10 +91,6 @@ def create_agent_graph():
 
 
 def get_graph_visualization():
-    """获取图的可视化表示
-
-    Returns:
-        图的 ASCII 艺术表示或 Mermaid 格式
-    """
+    """获取图的可视化表示"""
     graph = create_agent_graph()
     return graph.get_graph().print_ascii()

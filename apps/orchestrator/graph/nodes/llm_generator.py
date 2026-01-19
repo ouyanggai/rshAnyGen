@@ -21,14 +21,10 @@ async def llm_generator(state: AgentState) -> AgentState:
     Returns:
         更新后的状态，包含最终生成的回答
     """
-    from langchain_openai import ChatOpenAI
+    from apps.orchestrator.services.llm_client import LLMClient
 
-    llm = ChatOpenAI(
-        base_url=config.get("llm.providers.qwen.base_url"),
-        api_key=config.get("llm.providers.qwen.api_key"),
-        model=config.get("llm.model", "qwen-max"),
-        temperature=config.get("llm.temperature", 0.7),
-    )
+    client = LLMClient()
+    llm = client.get_chat_model(temperature=config.get("llm.temperature", 0.7))
 
     # 构建提示词
     prompt = _build_prompt(state)
