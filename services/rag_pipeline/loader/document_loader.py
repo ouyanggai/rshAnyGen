@@ -15,6 +15,7 @@ class DocumentLoader:
     IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"}
     WORD_EXTENSIONS = {".docx", ".doc"}
     EXCEL_EXTENSIONS = {".xlsx", ".xls"}
+    POWERPOINT_EXTENSIONS = {".pptx", ".ppt"}
     PDF_EXTENSIONS = {".pdf"}
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -56,6 +57,10 @@ class DocumentLoader:
                 return await self._load_excel(path, ext)
             elif ext in self.PDF_EXTENSIONS:
                 return await self._load_pdf(path, ext)
+            elif ext in self.POWERPOINT_EXTENSIONS:
+                return await self._load_powerpoint(path, ext)
+            elif ext in {".html", ".htm"}:
+                return await self._load_html(path, ext)
             else:
                 raise ValueError(f"Unsupported file type: {ext}")
         except Exception as e:
@@ -117,18 +122,62 @@ class DocumentLoader:
         Returns:
             Document dictionary with OCR extracted text
         """
-        # TODO: Integrate PaddleOCR or Tesseract
-        # For now, return placeholder
-        return {
-            "type": "image",
-            "content": "",
-            "metadata": {
-                "format": ext,
-                "file_name": path.name,
-                "file_size": path.stat().st_size,
-                "note": "OCR integration pending - install paddleocr for text extraction",
-            },
-        }
+        try:
+            from paddleocr import PaddleOCR
+
+            # Initialize PaddleOCR (use angle classifier for rotated text)
+            ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang="ch",  # Chinese + English
+                show_log=False,
+            )
+
+            # Run OCR
+            result = ocr.ocr(str(path), cls=True)
+
+            # Extract text from OCR result
+            text_parts = []
+            if result and result[0]:
+                for line in result[0]:
+                    if line and len(line) >= 2:
+                        text_parts.append(line[1][0])
+
+            content = "\n".join(text_parts)
+
+            return {
+                "type": "image",
+                "content": content,
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "lines_detected": len(text_parts),
+                },
+            }
+        except ImportError:
+            logger.warning("paddleocr not installed. Run: pip install paddleocr")
+            return {
+                "type": "image",
+                "content": "",
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "note": "paddleocr not installed",
+                },
+            }
+        except Exception as e:
+            logger.error(f"Error processing image with OCR: {e}")
+            return {
+                "type": "image",
+                "content": "",
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "error": str(e),
+                },
+            }
 
     async def _load_word(self, path: Path, ext: str) -> Dict[str, Any]:
         """Load Word documents
@@ -277,4 +326,125 @@ class DocumentLoader:
             }
         except Exception as e:
             logger.error(f"Error loading PDF: {e}")
+            raise
+
+    async def _load_powerpoint(self, path: Path, ext: str) -> Dict[str, Any]:
+        """Load PowerPoint presentations
+
+        Args:
+            path: Path to the PowerPoint file
+            ext: File extension
+
+        Returns:
+            Document dictionary
+        """
+        try:
+            from pptx import Presentation
+
+            prs = Presentation(path)
+            slides_data = []
+
+            for slide_idx, slide in enumerate(prs.slides):
+                slide_text = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text.append(shape.text.strip())
+
+                if slide_text:
+                    slides_data.append(f"=== Slide {slide_idx + 1} ===\n" + "\n".join(slide_text))
+
+            content = "\n\n".join(slides_data)
+
+            return {
+                "type": "powerpoint",
+                "content": content,
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "slide_count": len(prs.slides),
+                },
+            }
+        except ImportError:
+            logger.warning("python-pptx not installed. Run: pip install python-pptx")
+            return {
+                "type": "powerpoint",
+                "content": "",
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "note": "python-pptx not installed",
+                },
+            }
+        except Exception as e:
+            logger.error(f"Error loading PowerPoint file: {e}")
+            raise
+
+    async def _load_html(self, path: Path, ext: str) -> Dict[str, Any]:
+        """Load HTML files
+
+        Args:
+            path: Path to the HTML file
+            ext: File extension
+
+        Returns:
+            Document dictionary with extracted text
+        """
+        try:
+            from bs4 import BeautifulSoup
+
+            html_content = path.read_text(encoding="utf-8")
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+
+            # Get text
+            text = soup.get_text()
+
+            # Break into lines and remove leading/trailing space
+            lines = (line.strip() for line in text.splitlines())
+            # Break multi-headlines into a line each
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            # Drop blank lines
+            content = "\n".join(chunk for chunk in chunks if chunk)
+
+            return {
+                "type": "html",
+                "content": content,
+                "metadata": {
+                    "format": ext,
+                    "file_name": path.name,
+                    "file_size": path.stat().st_size,
+                    "title": soup.title.string if soup.title else "",
+                },
+            }
+        except ImportError:
+            logger.warning("beautifulsoup4 not installed. Run: pip install beautifulsoup4")
+            # Fallback to basic text extraction
+            try:
+                import re
+
+                html_content = path.read_text(encoding="utf-8")
+                # Remove HTML tags
+                content = re.sub(r"<[^>]+>", "", html_content)
+                content = re.sub(r"\s+", " ", content).strip()
+
+                return {
+                    "type": "html",
+                    "content": content,
+                    "metadata": {
+                        "format": ext,
+                        "file_name": path.name,
+                        "file_size": path.stat().st_size,
+                        "note": "Using basic text extraction (beautifulsoup4 recommended)",
+                    },
+                }
+            except Exception as e:
+                logger.error(f"Error loading HTML file: {e}")
+                raise
+        except Exception as e:
+            logger.error(f"Error loading HTML file: {e}")
             raise

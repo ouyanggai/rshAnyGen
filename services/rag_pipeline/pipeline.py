@@ -9,6 +9,7 @@ from .loader.document_loader import DocumentLoader
 from .chunker.text_chunker import TextChunker, Chunk
 from .embedder.embedder import Embedder
 from .retriever.retriever import Retriever
+from .retriever.reranker import Reranker, NoOpReranker
 from .store.vector_store import VectorStore, SearchResult
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,13 @@ class RAGPipeline:
         self.embedder = Embedder(config)
         self.vector_store = VectorStore(config)
         self.retriever = Retriever(config)
+
+        # Initialize reranker
+        rerank_config = config.get("reranker", {})
+        if rerank_config.get("enabled", False):
+            self.reranker = Reranker(config)
+        else:
+            self.reranker = NoOpReranker(config)
 
         # Get collection name
         vector_db_config = self.config.get("vector_db", self.config)
@@ -201,7 +209,7 @@ class RAGPipeline:
         Args:
             query: Search query
             top_k: Number of results to return
-            rerank: Whether to apply reranking (not implemented)
+            rerank: Whether to apply reranking
 
         Returns:
             List of search results
@@ -210,14 +218,15 @@ class RAGPipeline:
             # Embed query
             query_embedding = await self.embedder.embed_query(query)
 
-            # Retrieve using hybrid search
-            results = await self.retriever.retrieve(query, query_embedding, top_k)
+            # Retrieve using hybrid search (get more for reranking)
+            retrieve_k = top_k * 4 if rerank else top_k
+            results = await self.retriever.retrieve(query, query_embedding, retrieve_k)
 
+            # Apply reranking if requested
             if rerank:
-                # TODO: Implement reranking
-                logger.warning("Reranking not yet implemented")
+                results = await self.reranker.rerank(query, results, top_n=top_k)
 
-            return results
+            return results[:top_k]
 
         except Exception as e:
             logger.error(f"Error searching: {e}")

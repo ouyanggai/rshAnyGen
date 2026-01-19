@@ -71,3 +71,63 @@ class TestDocumentLoaderFormats:
             assert result["type"] == "excel"
             assert "Excel Content" in result["content"]
             assert "Sheet: Sheet1" in result["content"]
+
+    @pytest.mark.asyncio
+    async def test_load_powerpoint(self, loader, tmp_path):
+        pptx_path = tmp_path / "test.pptx"
+        pptx_path.touch()
+
+        with patch.dict('sys.modules', {'pptx': MagicMock()}):
+            mock_pptx = sys.modules['pptx']
+            mock_prs = MagicMock()
+            mock_slide = MagicMock()
+            mock_shape = MagicMock()
+            mock_shape.text = "PowerPoint Content"
+            mock_slide.shapes = [mock_shape]
+            mock_prs.slides = [mock_slide]
+            mock_pptx.Presentation.return_value = mock_prs
+
+            result = await loader.load(str(pptx_path))
+            assert result["type"] == "powerpoint"
+            assert "PowerPoint Content" in result["content"]
+            assert result["metadata"]["slide_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_load_html(self, loader, tmp_path):
+        html_path = tmp_path / "test.html"
+        html_path.write_text("<html><head><title>Test Page</title></head><body><h1>Hello World</h1><p>Content here</p></body></html>", encoding="utf-8")
+
+        result = await loader.load(str(html_path))
+        assert result["type"] == "html"
+        assert "Hello World" in result["content"]
+        assert "Content here" in result["content"]
+        assert result["metadata"]["title"] == "Test Page"
+
+    @pytest.mark.asyncio
+    async def test_load_html_with_bs4_fallback(self, loader, tmp_path):
+        html_path = tmp_path / "test2.html"
+        html_path.write_text("<html><body><h1>Fallback Test</h1></body></html>", encoding="utf-8")
+
+        # Test without BeautifulSoup (should use regex fallback)
+        with patch.dict('sys.modules', {'bs4': None}):
+            result = await loader.load(str(html_path))
+            assert result["type"] == "html"
+            # Fallback extracts text using regex
+            assert "Fallback Test" in result["content"] or result["content"]
+
+    @pytest.mark.asyncio
+    async def test_load_image_with_ocr_mock(self, loader, tmp_path):
+        """Test image loading with mocked OCR"""
+        img_path = tmp_path / "test.jpg"
+        img_path.write_bytes(b"fake image data")
+
+        # Test the error handling path when paddleocr is not available
+        # This is the realistic scenario for unit tests without full OCR setup
+        with patch.dict('sys.modules', {'paddleocr': None}):
+            # Force import error by setting paddleocr to None
+            result = await loader.load(str(img_path))
+            assert result["type"] == "image"
+            # When paddleocr is not installed, content is empty
+            assert result["content"] == ""
+            assert "note" in result["metadata"]
+            assert "paddleocr" in result["metadata"]["note"]

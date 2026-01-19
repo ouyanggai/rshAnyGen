@@ -59,7 +59,7 @@ class BM25Index:
         logger.info(f"Indexed {self.doc_count} documents for BM25")
 
     def _tokenize(self, text: str) -> List[str]:
-        """Simple tokenization for Chinese and English
+        """Tokenization for Chinese and English using jieba
 
         Args:
             text: Input text
@@ -67,15 +67,22 @@ class BM25Index:
         Returns:
             List of tokens
         """
-        # For Chinese, we might want to use jieba
-        # For now, simple character-level tokenization for Chinese
-        tokens = []
+        try:
+            import jieba
 
-        for char in text:
-            if char.strip():
-                tokens.append(char.lower())
-
-        return tokens
+            # Use jieba for Chinese word segmentation
+            words = jieba.lcut(text)
+            # Filter out empty strings and single punctuation
+            tokens = [w.lower().strip() for w in words if w.strip() and len(w.strip()) > 1]
+            return tokens
+        except ImportError:
+            logger.warning("jieba not installed, using basic tokenization. Run: pip install jieba")
+            # Fallback to character-level tokenization
+            tokens = []
+            for char in text:
+                if char.strip():
+                    tokens.append(char.lower())
+            return tokens
 
     def search(self, query: str, top_k: int = 10) -> List[SearchResult]:
         """Search using BM25 scoring
