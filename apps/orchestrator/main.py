@@ -1,5 +1,11 @@
 """Orchestrator Service - API Entry Point"""
 
+import os
+# CRITICAL: Clear all proxy settings before any imports
+for key in list(os.environ.keys()):
+    if 'proxy' in key.lower():
+        del os.environ[key]
+
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -73,6 +79,34 @@ class ChatResponse(BaseModel):
 async def health_check():
     return {"status": "healthy", "service": "orchestrator"}
 
+@app.get("/test/llm")
+async def test_llm():
+    """Test LLM directly"""
+    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
+
+    client = SimpleLLMClient()
+    result = await client.achat(["你好"])
+    return {"status": "success", "response": result}
+
+@app.post("/api/v1/chat/simple")
+async def chat_simple(request: ChatRequest):
+    """Simple chat endpoint without Agent Graph"""
+    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
+
+    async def event_generator():
+        try:
+            client = SimpleLLMClient()
+            response = await client.achat([request.message])
+            yield json.dumps({"type": "chunk", "content": response}) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+        except Exception as e:
+            logger.error(f"Error in simple chat: {e}", exc_info=True)
+            yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 @app.post("/api/v1/chat")
 async def chat(request: ChatRequest):
     """Process chat message through agent graph with streaming"""
@@ -123,4 +157,5 @@ async def chat(request: ChatRequest):
 
 if __name__ == "__main__":
     port = config.get("ports", {}).get("orchestrator", 9302)
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # Use app object directly instead of module string to avoid import issues
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)

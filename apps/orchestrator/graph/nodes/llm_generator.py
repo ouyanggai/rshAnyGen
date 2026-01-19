@@ -21,22 +21,22 @@ async def llm_generator(state: AgentState) -> AgentState:
     Returns:
         更新后的状态，包含最终生成的回答
     """
-    from apps.orchestrator.services.llm_client import LLMClient
+    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
 
-    client = LLMClient()
-    llm = client.get_chat_model(temperature=config.get("llm.temperature", 0.7))
+    client = SimpleLLMClient()
 
     # 构建提示词
     prompt = _build_prompt(state)
 
     try:
-        response = await llm.ainvoke(prompt)
-        state["final_answer"] = response.content
+        # Use simple LLM client directly
+        response = await client.achat([prompt], temperature=config.get("llm.temperature", 0.7))
+        state["final_answer"] = response
 
         # 确保 metadata 字段已初始化
         if not isinstance(state.get("metadata"), dict):
             state["metadata"] = {}
-        state["metadata"]["model"] = config.get("llm.model")
+        state["metadata"]["model"] = client.model
 
         logger.info(
             f"LLM response generated for session {state['session_id']} "

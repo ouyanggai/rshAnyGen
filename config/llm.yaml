@@ -1,15 +1,15 @@
 # LLM (大语言模型) 服务配置
 # 用于 Agent 对话和推理
 
-llm_providers:
+providers:
   # 智谱 AI - 推荐用于测试 (有免费额度)
   # 获取: https://open.bigmodel.cn
   zhipu:
     api_key: "${ZHIPU_LLM_API_KEY}"
     base_url: "https://open.bigmodel.cn/api/paas/v4"
     models:
-      chat: "glm-4-flash"  # 免费，适合测试
-      premium: "glm-4-plus"  # 付费，更强
+      - "glm-4-flash"  # 免费，适合测试
+      - "glm-4-plus"  # 付费，更强
     timeout: 60
     max_tokens: 4096
 
@@ -19,8 +19,8 @@ llm_providers:
     api_key: "${DEEPSEEK_API_KEY}"
     base_url: "https://api.deepseek.com"
     models:
-      chat: "deepseek-chat"
-      coder: "deepseek-coder"
+      - "deepseek-chat"
+      - "deepseek-coder"
     timeout: 60
     max_tokens: 4096
 
@@ -30,9 +30,9 @@ llm_providers:
     api_key: "${QWEN_LLM_API_KEY}"
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     models:
-      chat: "qwen-plus"
-      fast: "qwen-turbo"
-      long: "qwen-long"  # 长文本
+      - "qwen-plus"
+      - "qwen-turbo"
+      - "qwen-long"  # 长文本
     timeout: 60
     max_tokens: 4096
 
@@ -42,8 +42,8 @@ llm_providers:
     api_key: "${OPENAI_API_KEY}"
     base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
     models:
-      chat: "gpt-4o-mini"
-      premium: "gpt-4o"
+      - "gpt-4o-mini"
+      - "gpt-4o"
     timeout: 60
     max_tokens: 4096
 
@@ -53,14 +53,14 @@ llm_providers:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
     models:
-      chat: "claude-3-5-sonnet-20241022"
-      fast: "claude-3-5-haiku-20241022"
+      - "claude-3-5-sonnet-20241022"
+      - "claude-3-5-haiku-20241022"
     timeout: 60
     max_tokens: 4096
     version: "2023-06-01"
 
 # 默认使用的 LLM 提供商
-active_llm: "zhipu"  # 可选: zhipu, deepseek, qwen, openai, anthropic
+active: "zhipu"  # 可选: zhipu, deepseek, qwen, openai, anthropic
 
 # LLM 参数默认值
 default_params:

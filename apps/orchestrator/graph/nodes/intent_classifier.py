@@ -33,19 +33,17 @@ async def intent_classifier(state: AgentState) -> AgentState:
 
 只返回一个词：search、knowledge 或 chat，不要返回其他内容。"""
 
-    message = HumanMessage(content=state["user_message"])
+    # 使用 SimpleLLMClient
+    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
 
-    # 调用 LLM（使用配置的提供商）
-    from apps.orchestrator.services.llm_client import LLMClient
-
-    client = LLMClient()
-    llm = client.get_chat_model(temperature=0.1)
+    client = SimpleLLMClient()
 
     try:
-        response = await llm.ainvoke(
-            [SystemMessage(content=system_prompt), message]
-        )
-        intent = response.content.strip().lower()
+        # 构建完整提示
+        full_prompt = f"{system_prompt}\n\n用户输入：{state['user_message']}\n\n意图："
+
+        response = await client.achat([full_prompt], temperature=0.1)
+        intent = response.strip().lower()
 
         # 验证并设置意图
         valid_intents = ["search", "knowledge", "chat"]
