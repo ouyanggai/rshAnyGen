@@ -1,5 +1,5 @@
 #!/bin/bash
-# 一键启动开发环境
+# rshAnyGen 一键启动开发环境
 
 set -e
 
@@ -8,47 +8,57 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}  rshAnyGen 开发环境启动${NC}"
-echo -e "${GREEN}=========================================${NC}"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
 
-# 检查依赖
-check_dependencies() {
-    echo -e "${YELLOW}检查依赖...${NC}"
+echo -e "${GREEN}=== rshAnyGen 开发环境启动 ===${NC}"
 
-    command -v python3 >/dev/null 2>&1 || { echo -e "${RED}错误: 未安装 Python3${NC}"; exit 1; }
-    command -v node >/dev/null 2>&1 || { echo -e "${RED}错误: 未安装 Node.js${NC}"; exit 1; }
+# 检查 Docker
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}错误: Docker 未安装${NC}"
+    exit 1
+fi
 
-    echo -e "${GREEN}✓ 依赖检查通过${NC}"
-}
+# 检查 Docker Compose
+if ! docker compose version &> /dev/null; then
+    echo -e "${RED}错误: Docker Compose 未安装${NC}"
+    exit 1
+fi
 
 # 创建日志目录
-setup_logs() {
-    mkdir -p logs/{gateway,orchestrator,mcp,skills,rag}
-    echo -e "${GREEN}✓ 日志目录已创建${NC}"
-}
+mkdir -p logs/{gateway,orchestrator,mcp,skills,rag}
 
-# 启动 Redis
-start_redis() {
-    if ! pgrep -x "redis-server" > /dev/null; then
-        redis-server --daemonize yes --port 6379
-        echo -e "${GREEN}✓ Redis 已启动${NC}"
-    else
-        echo -e "${GREEN}✓ Redis 已在运行${NC}"
-    fi
-}
+# 启动依赖服务 (Redis, Milvus)
+echo -e "${YELLOW}启动依赖服务...${NC}"
+docker compose -f deploy/docker/docker-compose.yml up -d redis etcd minio milvus
 
-# 主流程
-main() {
-    check_dependencies
-    setup_logs
-    start_redis
+# 等待依赖服务就绪
+echo -e "${YELLOW}等待依赖服务就绪...${NC}"
+sleep 10
 
-    echo ""
-    echo -e "${GREEN}开发环境准备完成！${NC}"
-    echo -e "请手动启动各服务："
-    echo -e "  - Gateway:     cd apps/gateway && python main.py"
-    echo -e "  - Orchestrator: cd apps/orchestrator && python main.py"
-}
+# 检查服务状态
+echo -e "${YELLOW}检查服务状态...${NC}"
+docker compose -f deploy/docker/docker-compose.yml ps redis etcd minio milvus
 
-main
+# 启动应用服务
+echo -e "${YELLOW}启动应用服务...${NC}"
+docker compose -f deploy/docker/docker-compose.yml up -d
+
+# 等待应用服务启动
+echo -e "${YELLOW}等待应用服务启动...${NC}"
+sleep 5
+
+# 显示所有服务状态
+echo -e "${GREEN}=== 服务状态 ===${NC}"
+docker compose -f deploy/docker/docker-compose.yml ps
+
+echo ""
+echo -e "${GREEN}=== 开发环境已启动 ===${NC}"
+echo -e "Gateway:        ${GREEN}http://localhost:9301${NC}"
+echo -e "Orchestrator:   ${GREEN}http://localhost:9302${NC}"
+echo -e "Skills Registry: ${GREEN}http://localhost:9303${NC}"
+echo -e "MCP Manager:    ${GREEN}http://localhost:9304${NC}"
+echo -e "RAG Pipeline:   ${GREEN}http://localhost:9305${NC}"
+echo ""
+echo -e "${YELLOW}查看日志: docker compose -f deploy/docker/docker-compose.yml logs -f [service_name]${NC}"
+echo -e "${YELLOW}停止环境: ./scripts/stop.sh${NC}"

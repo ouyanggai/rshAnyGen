@@ -1,0 +1,25 @@
+# rshAnyGen ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rshanygen-config
+  namespace: rshanygen
+data:
+  # 服务端口配置
+  GATEWAY_PORT: "9301"
+  ORCHESTRATOR_PORT: "9302"
+  SKILLS_REGISTRY_PORT: "9303"
+  MCP_MANAGER_PORT: "9304"
+  RAG_PIPELINE_PORT: "9305"
+
+  # Redis 配置
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+
+  # Milvus 配置
+  MILVUS_HOST: "milvus-service"
+  MILVUS_PORT: "19530"
+
+  # 环境配置
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"

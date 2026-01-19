@@ -1,19 +1,19 @@
 #!/bin/bash
+# rshAnyGen 停止开发环境
+
+set -e
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo -e "${YELLOW}=== 停止 rshAnyGen 开发环境 ===${NC}"
+
 # 停止所有服务
+docker compose -f deploy/docker/docker-compose.yml down
 
-echo "停止服务..."
-
-# 停止后端
-for pid_file in logs/*/.*.pid; do
-    if [ -f "$pid_file" ]; then
-        kill $(cat "$pid_file") 2>/dev/null
-        rm "$pid_file"
-    fi
-done
-
-# 停止 Redis
-if pgrep -x "redis-server" > /dev/null; then
-    redis-cli shutdown
-fi
-
-echo "所有服务已停止"
+echo -e "${GREEN}=== 所有服务已停止 ===${NC}"
+echo -e "${YELLOW}如需删除数据卷，运行: docker compose -f deploy/docker/docker-compose.yml down -v${NC}"

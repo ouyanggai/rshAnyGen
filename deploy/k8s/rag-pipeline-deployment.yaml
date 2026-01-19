@@ -1,0 +1,52 @@
+# RAG Pipeline Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-pipeline-deployment
+  namespace: rshanygen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-pipeline
+  template:
+    metadata:
+      labels:
+        app: rag-pipeline
+    spec:
+      containers:
+        - name: rag-pipeline
+          image: rshanygen/rag-pipeline:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9305
+          env:
+            - name: MILVUS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: rshanygen-config
+                  key: MILVUS_HOST
+            - name: MILVUS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: rshanygen-config
+                  key: MILVUS_PORT
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9305
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9305
+            initialDelaySeconds: 10
+            periodSeconds: 5

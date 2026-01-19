@@ -1,0 +1,25 @@
+# Skills Registry Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements-shared.txt services/skills_registry/requirements.txt ./
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r skills_registry/requirements.txt
+
+# 复制应用代码
+COPY apps/shared/ apps/shared/
+COPY services/skills_registry/ services/skills_registry/
+
+# 暴露端口
+EXPOSE 9303
+
+# 启动命令
+CMD ["python", "-m", "services.skills_registry.api.main"]

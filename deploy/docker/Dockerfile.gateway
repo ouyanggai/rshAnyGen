@@ -1,0 +1,25 @@
+# Gateway Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements-shared.txt apps/gateway/requirements.txt ./
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r gateway/requirements.txt
+
+# 复制应用代码
+COPY apps/shared/ apps/shared/
+COPY apps/gateway/ apps/gateway/
+
+# 暴露端口
+EXPOSE 9301
+
+# 启动命令
+CMD ["python", "-m", "apps.gateway.main"]

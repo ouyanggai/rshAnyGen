@@ -1,0 +1,8 @@
+# rshAnyGen Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rshanygen
+  labels:
+    name: rshanygen
+    app: rshanygen
