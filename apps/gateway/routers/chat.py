@@ -66,9 +66,9 @@ async def chat_stream(request: ChatRequest, req: Request):
                         yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
                         return
 
-                    async for chunk in response.aiter_text():
-                        if chunk:
-                            yield f"data: {chunk}\n\n"
+                    async for line in response.aiter_lines():
+                        if line:
+                            yield f"data: {line}\n\n"
 
         except httpx.ConnectError as e:
             error_msg = f"Cannot connect to Orchestrator at {ORCHESTRATOR_URL}"
