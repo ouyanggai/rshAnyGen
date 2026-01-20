@@ -13,6 +13,7 @@ class AgentState(MessagesState):
     # 输入
     session_id: str
     user_message: str
+    llm_config: Optional[dict] = None  # 包含 api_key, base_url 等
     # chat_history 由 MessagesState 提供
 
     # 中间状态

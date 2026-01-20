@@ -1,5 +1,6 @@
 """测试 Orchestrator 图节点"""
 import pytest
+import httpx
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 
 from apps.orchestrator.graph.state import AgentState
@@ -603,3 +604,212 @@ async def test_skill_selector_invalid_config():
 
         # 验证使用了默认值 5
         assert result["skill_parameters"]["max_results"] == 5
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rag_retriever_no_query():
+    from apps.orchestrator.graph.nodes.rag_retriever import rag_retriever
+
+    state = AgentState(
+        session_id="test-017",
+        user_message="",
+        messages=[],
+        intent="knowledge",
+        selected_skill=None,
+        skill_parameters=None,
+        tool_call_approved=True,
+        retrieved_docs=[],
+        reranked_docs=[],
+        tool_results=None,
+        final_answer="",
+        citations=[],
+        metadata={},
+    )
+
+    result = await rag_retriever(state)
+    assert result["retrieved_docs"] == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rag_retriever_formats_docs():
+    from apps.orchestrator.graph.nodes.rag_retriever import rag_retriever
+
+    mock_client = MagicMock()
+    mock_client.search = AsyncMock(return_value=[
+        {"content": "doc1", "chunk_id": "c1", "score": 0.9},
+        {"content": "doc2", "chunk_id": "c2", "score": 0.8},
+    ])
+    mock_client.close = AsyncMock()
+
+    with patch("apps.orchestrator.graph.nodes.rag_retriever.RAGPipelineClient", return_value=mock_client):
+        state = AgentState(
+            session_id="test-018",
+            user_message="查询",
+            messages=[],
+            intent="knowledge",
+            selected_skill=None,
+            skill_parameters=None,
+            tool_call_approved=True,
+            retrieved_docs=[],
+            reranked_docs=[],
+            tool_results=None,
+            final_answer="",
+            citations=[{"source": "s1"}],
+            metadata={},
+        )
+
+        result = await rag_retriever(state)
+
+    assert len(result["retrieved_docs"]) == 2
+    assert result["retrieved_docs"][0]["source"] == "c1"
+    assert result["citations"] == [{"source": "s1"}]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_executor_no_skill():
+    from apps.orchestrator.graph.nodes.tool_executor import tool_executor
+
+    state = AgentState(
+        session_id="test-019",
+        user_message="",
+        messages=[],
+        intent="search",
+        selected_skill=None,
+        skill_parameters=None,
+        tool_call_approved=True,
+        retrieved_docs=[],
+        reranked_docs=[],
+        tool_results=None,
+        final_answer="",
+        citations=[],
+        metadata={},
+    )
+
+    result = await tool_executor(state)
+    assert result["tool_results"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_executor_executes_skill():
+    from apps.orchestrator.graph.nodes.tool_executor import tool_executor
+
+    mock_client = MagicMock()
+    mock_client.execute_skill = AsyncMock(return_value={"result": {"value": 123}})
+    mock_client.close = AsyncMock()
+
+    with patch("apps.orchestrator.graph.nodes.tool_executor.SkillsRegistryClient", return_value=mock_client):
+        state = AgentState(
+            session_id="test-020",
+            user_message="搜索",
+            messages=[],
+            intent="search",
+            selected_skill="web_search",
+            skill_parameters={"query": "x"},
+            tool_call_approved=True,
+            retrieved_docs=[],
+            reranked_docs=[],
+            tool_results=None,
+            final_answer="",
+            citations=[{"source": "s2"}],
+            metadata={},
+        )
+
+        result = await tool_executor(state)
+
+    assert result["tool_results"] == {"value": 123}
+    assert result["citations"] == [{"source": "s2"}]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rag_pipeline_client_search_success():
+    from apps.orchestrator.services.rag_pipeline import RAGPipelineClient
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = [{"content": "doc"}]
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("apps.orchestrator.services.rag_pipeline.httpx.AsyncClient", return_value=mock_client):
+        client = RAGPipelineClient()
+        result = await client.search("q", top_k=2, rerank=False)
+        await client.close()
+
+    assert result == [{"content": "doc"}]
+    mock_client.post.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rag_pipeline_client_search_error():
+    from apps.orchestrator.services.rag_pipeline import RAGPipelineClient
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "error",
+        request=MagicMock(),
+        response=MagicMock(),
+    )
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("apps.orchestrator.services.rag_pipeline.httpx.AsyncClient", return_value=mock_client):
+        client = RAGPipelineClient()
+        result = await client.search("q")
+        await client.close()
+
+    assert result == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_skill_registry_client_get_skill_success():
+    from apps.orchestrator.services.skill_registry import SkillsRegistryClient
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"id": "s1"}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("apps.orchestrator.services.skill_registry.httpx.AsyncClient", return_value=mock_client):
+        client = SkillsRegistryClient()
+        result = await client.get_skill("s1")
+        await client.close()
+
+    assert result == {"id": "s1"}
+    mock_client.get.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_skill_registry_client_execute_skill_error():
+    from apps.orchestrator.services.skill_registry import SkillsRegistryClient
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "error",
+        request=MagicMock(),
+        response=MagicMock(),
+    )
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("apps.orchestrator.services.skill_registry.httpx.AsyncClient", return_value=mock_client):
+        client = SkillsRegistryClient()
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.execute_skill("s1", {"a": 1})
+        await client.close()

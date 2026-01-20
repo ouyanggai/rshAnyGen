@@ -13,6 +13,12 @@ class ConfigLoader:
         self.config_dir = Path(config_dir)
         self._defaults: Optional[Dict[str, Any]] = None
         self._configs: Dict[str, Dict[str, Any]] = {}
+        try:
+            from dotenv import load_dotenv
+            env_path = Path(__file__).resolve().parents[2] / ".env"
+            load_dotenv(env_path)
+        except Exception:
+            pass
 
     def load_defaults(self) -> Dict[str, Any]:
         """加载默认配置"""
@@ -22,7 +28,8 @@ class ConfigLoader:
                 raise FileNotFoundError(f"Default config not found: {default_path}")
 
             with open(default_path, 'r', encoding='utf-8') as f:
-                self._defaults = yaml.safe_load(f) or {}
+                data = yaml.safe_load(f) or {}
+                self._defaults = self._resolve_recursive(data)
         return self._defaults
 
     def load_config(self, name: str) -> Dict[str, Any]:
@@ -31,10 +38,21 @@ class ConfigLoader:
             config_path = self.config_dir / f"{name}.yaml"
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
-                    self._configs[name] = yaml.safe_load(f) or {}
+                    data = yaml.safe_load(f) or {}
+                    self._configs[name] = self._resolve_recursive(data)
             else:
                 self._configs[name] = {}
         return self._configs[name]
+
+    def _resolve_recursive(self, data: Any) -> Any:
+        """递归解析配置中的环境变量"""
+        if isinstance(data, dict):
+            return {k: self._resolve_recursive(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._resolve_recursive(item) for item in data]
+        elif isinstance(data, str) and data.startswith("${"):
+            return self._resolve_env_var(data)
+        return data
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """

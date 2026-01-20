@@ -10,6 +10,9 @@ import shutil
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+tests_unit_root = Path(__file__).parent / "unit"
+if str(tests_unit_root) not in sys.path:
+    sys.path.insert(0, str(tests_unit_root))
 
 
 @pytest.fixture(scope="session")

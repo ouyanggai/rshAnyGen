@@ -1,0 +1,341 @@
+/* ChatUI 样式 - @import 必须在最前面 */
+@import '@chatui/core/dist/index.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   全局基础样式 - Soft UI Evolution
+   ======================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Work Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 改善文本渲染 */
+  text-rendering: optimizeLegibility;
+  -webkit-font-variant-ligatures: common-ligatures;
+  font-variant-ligatures: common-ligatures;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ========================================
+   滚动条样式 - 精致优雅
+   ======================================== */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+  transition: background 200ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ========================================
+   安全区域适配 - iOS 刘海屏
+   ======================================== */
+
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+/* ========================================
+   ChatUI 样式覆盖 - Soft UI Evolution
+   ======================================== */
+
+.ChatUI {
+  --color-primary: #2563EB;
+  --color-primary-light: #3B82F6;
+  --color-primary-dark: #1D4ED8;
+  --color-bg: #F8FAFC;
+  --color-card-bg: #FFFFFF;
+  --color-text: #0F172A;
+  --color-text-secondary: #475569;
+  --color-border: #E2E8F0;
+
+  /* 输入框改进 */
+  --Composer-height: 56px;
+  --Composer-borderRadius: 16px;
+}
+
+/* 消息气泡 - Soft UI */
+.Message {
+  border-radius: 16px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+  transition: all 200ms ease !important;
+}
+
+.Message--left {
+  border-bottom-left-radius: 4px !important;
+  background: #FFFFFF !important;
+}
+
+.Message--right {
+  border-bottom-right-radius: 4px !important;
+  background: #2563EB !important;
+  color: #FFFFFF !important;
+}
+
+.Message--right .Message-text {
+  color: #FFFFFF !important;
+}
+
+/* 输入框 - Elevated */
+.Input {
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04) !important;
+  border: 1px solid #E2E8F0 !important;
+  transition: all 200ms ease !important;
+}
+
+.Input:focus-within {
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1), 0 2px 4px rgba(0,0,0,0.04) !important;
+  border-color: #2563EB !important;
+}
+
+/* 按钮样式 */
+.Button {
+  border-radius: 12px !important;
+  transition: all 200ms ease !important;
+  font-weight: 500 !important;
+}
+
+.Button--primary {
+  background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%) !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25) !important;
+}
+
+.Button--primary:hover {
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+.Button--primary:active {
+  transform: translateY(0) !important;
+}
+
+/* 导航栏 */
+.Navbar {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(12px) !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+/* ========================================
+   深色模式 - 高对比度
+   ======================================== */
+
+.dark {
+  --color-bg: #0F172A;
+  --color-card-bg: #1E293B;
+  --color-text: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-border: #334155;
+}
+
+.dark body {
+  background-color: #0F172A;
+  color: #F1F5F9;
+}
+
+.dark .ChatUI {
+  --color-bg: #0F172A;
+  --color-card-bg: #1E293B;
+  --color-text: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-border: #334155;
+}
+
+.dark .Message--left {
+  background: #1E293B !important;
+  color: #F1F5F9 !important;
+}
+
+.dark .Input {
+  background: #1E293B !important;
+  border-color: #334155 !important;
+  color: #F1F5F9 !important;
+}
+
+.dark .Navbar {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-bottom-color: #334155 !important;
+}
+
+/* ========================================
+   工具类 - Professional UI Components
+   ======================================== */
+
+@layer components {
+  /* 卡片组件 - Dimensional Layering */
+  .card {
+    @apply bg-white rounded-xl border border-border shadow-elevation-1;
+    @apply transition-all duration-200;
+  }
+
+  .card-hoverable {
+    @apply card cursor-pointer;
+  }
+
+  .card-hoverable:hover {
+    @apply shadow-elevation-3 scale-[1.01];
+  }
+
+  /* 按钮组件 */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium;
+    @apply transition-all duration-200 cursor-pointer;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-700 text-white;
+    @apply shadow-glow-sm hover:shadow-glow-md;
+  }
+
+  .btn-primary:active {
+    @apply scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply bg-bg-tertiary hover:bg-gray-200 text-text-primary;
+    @apply border border-border;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent hover:bg-bg-tertiary text-text-secondary;
+  }
+
+  /* 输入框组件 */
+  .input {
+    @apply w-full px-4 py-2.5 bg-white border border-border rounded-lg;
+    @apply text-text-primary placeholder:text-text-muted;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary;
+    @apply transition-all duration-200;
+  }
+
+  .input-dark {
+    @apply bg-bg-tertiary;
+  }
+
+  /* 状态指示器 */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-online {
+    @apply bg-green-500;
+  }
+
+  .status-offline {
+    @apply bg-gray-400;
+  }
+
+  .status-busy {
+    @apply bg-red-500;
+  }
+
+  /* 徽章 */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply bg-primary/10 text-primary;
+  }
+
+  .badge-success {
+    @apply bg-green-100 text-green-700;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-700;
+  }
+
+  .badge-error {
+    @apply bg-red-100 text-red-700;
+  }
+
+  /* 分隔线 */
+  .divider {
+    @apply border-t border-border;
+  }
+
+  /* Avatar 占位符 */
+  .avatar-placeholder {
+    @apply w-full h-full rounded-full flex items-center justify-center;
+    @apply bg-gradient-to-br from-primary-400 to-primary-600;
+    @apply text-white font-semibold;
+  }
+}
+
+/* ========================================
+   可访问性 - Focus Visible
+   ======================================== */
+
+@layer utilities {
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2;
+  }
+
+  .focus-ring-inset {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset;
+  }
+}
+
+/* ========================================
+   动画优化
+   ======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ========================================
+   打印样式
+   ======================================== */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}

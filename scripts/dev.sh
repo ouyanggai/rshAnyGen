@@ -1,5 +1,4 @@
 #!/bin/bash
-# rshAnyGen 一键启动开发环境
 
 set -e
 
@@ -11,54 +10,109 @@ NC='\033[0m'
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-echo -e "${GREEN}=== rshAnyGen 开发环境启动 ===${NC}"
+echo -e "${GREEN}=== rshAnyGen 本地开发环境启动（Python + Node）===${NC}"
 
-# 检查 Docker
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}错误: Docker 未安装${NC}"
-    exit 1
+mkdir -p logs/{gateway,orchestrator,skills,rag,webui} logs/pids
+
+get_port() {
+  local key="$1"
+  awk -v k="$key:" '
+    $1=="ports:" {in_ports=1; next}
+    in_ports && $1==k {print $2; exit}
+    in_ports && NF==0 {in_ports=0}
+  ' config/default.yaml
+}
+PORT_WEBUI=$(get_port web_ui)
+PORT_GATEWAY=$(get_port gateway)
+PORT_ORCH=$(get_port orchestrator)
+PORT_SKILLS=$(get_port skills_registry)
+PORT_RAG=$(get_port rag_pipeline)
+
+if [[ -z "$PORT_WEBUI" || -z "$PORT_GATEWAY" || -z "$PORT_ORCH" || -z "$PORT_SKILLS" || -z "$PORT_RAG" ]]; then
+  echo -e "${RED}错误: 无法从 config/default.yaml 读取端口${NC}"
+  exit 1
 fi
 
-# 检查 Docker Compose
-if ! docker compose version &> /dev/null; then
-    echo -e "${RED}错误: Docker Compose 未安装${NC}"
-    exit 1
+free_port() {
+  local port="$1"
+  local pids
+  pids=$(lsof -ti tcp:"$port" || true)
+  if [[ -n "$pids" ]]; then
+    echo -e "${YELLOW}端口 $port 已被占用，正在释放...${NC}"
+    echo "$pids" | xargs kill -9 || true
+    sleep 0.5
+  fi
+}
+
+if [[ ! -d "venv" ]]; then
+  echo -e "${YELLOW}创建并安装 Python 依赖...${NC}"
+  bash scripts/install.sh
+else
+  source venv/bin/activate
 fi
 
-# 创建日志目录
-mkdir -p logs/{gateway,orchestrator,mcp,skills,rag}
+start_python_module() {
+  local name="$1"
+  local module="$2"
+  local port="$3"
+  local log="logs/${name}/${name}.log"
+  free_port "$port"
+  echo -e "${YELLOW}启动 ${name} (${module})，端口 ${port}...${NC}"
+  bash -c "source venv/bin/activate && PYTHONPATH=. python -m ${module}" &
+  local pid=$!
+  echo "$pid" > "logs/pids/${name}.pid"
+  echo -e "${GREEN}${name} 启动完成 (PID: $pid)，日志: $log${NC}"
+}
 
-# 启动依赖服务 (Redis, Milvus)
-echo -e "${YELLOW}启动依赖服务...${NC}"
-docker compose -f deploy/docker/docker-compose.yml up -d redis etcd minio milvus
+start_uvicorn_app() {
+  local name="$1"
+  local app_ref="$2"
+  local port="$3"
+  local log="logs/${name}/${name}.log"
+  free_port "$port"
+  echo -e "${YELLOW}启动 ${name} (uvicorn ${app_ref})，端口 ${port}...${NC}"
+  bash -c "source venv/bin/activate && PYTHONPATH=. uvicorn ${app_ref} --host 0.0.0.0 --port ${port}" &
+  local pid=$!
+  echo "$pid" > "logs/pids/${name}.pid"
+  echo -e "${GREEN}${name} 启动完成 (PID: $pid)，日志: $log${NC}"
+}
 
-# 等待依赖服务就绪
-echo -e "${YELLOW}等待依赖服务就绪...${NC}"
-sleep 10
+start_web_ui() {
+  local port="$1"
+  local log="logs/webui/webui.log"
+  free_port "$port"
+  echo -e "${YELLOW}启动 Web UI (SvelteKit Vite)，端口 ${port}...${NC}"
+  pushd apps/web-ui > /dev/null
+  if [[ ! -d "node_modules" ]]; then
+    npm install --legacy-peer-deps
+  fi
+  BACKEND_GATEWAY="http://localhost:${PORT_GATEWAY}" \
+  BACKEND_ORCHESTRATOR="http://localhost:${PORT_ORCH}" \
+  npm run dev -- --port "${port}" --host &
+  local pid=$!
+  echo "$pid" > "${PROJECT_ROOT}/logs/pids/webui.pid"
+  popd > /dev/null
+  echo -e "${GREEN}Web UI 启动完成 (PID: $pid)，日志: $log${NC}"
+}
 
-# 检查服务状态
-echo -e "${YELLOW}检查服务状态...${NC}"
-docker compose -f deploy/docker/docker-compose.yml ps redis etcd minio milvus
+echo -e "${YELLOW}启动后端服务...${NC}"
+start_python_module "gateway" "apps.gateway.main" "$PORT_GATEWAY"
+start_python_module "orchestrator" "apps.orchestrator.main" "$PORT_ORCH"
+start_uvicorn_app "skills" "services.skills_registry.api.main:app" "$PORT_SKILLS"
+start_uvicorn_app "rag" "services.rag_pipeline.server:app" "$PORT_RAG"
 
-# 启动应用服务
-echo -e "${YELLOW}启动应用服务...${NC}"
-docker compose -f deploy/docker/docker-compose.yml up -d
-
-# 等待应用服务启动
-echo -e "${YELLOW}等待应用服务启动...${NC}"
-sleep 5
-
-# 显示所有服务状态
-echo -e "${GREEN}=== 服务状态 ===${NC}"
-docker compose -f deploy/docker/docker-compose.yml ps
+echo -e "${YELLOW}启动前端 Web UI...${NC}"
+start_web_ui "$PORT_WEBUI"
 
 echo ""
-echo -e "${GREEN}=== 开发环境已启动 ===${NC}"
-echo -e "Gateway:        ${GREEN}http://localhost:9301${NC}"
-echo -e "Orchestrator:   ${GREEN}http://localhost:9302${NC}"
-echo -e "Skills Registry: ${GREEN}http://localhost:9303${NC}"
-echo -e "MCP Manager:    ${GREEN}http://localhost:9304${NC}"
-echo -e "RAG Pipeline:   ${GREEN}http://localhost:9305${NC}"
+echo -e "${GREEN}=== 服务已启动（本地开发）===${NC}"
+echo -e "Web UI:        ${GREEN}http://localhost:${PORT_WEBUI}${NC}"
+echo -e "Gateway:       ${GREEN}http://localhost:${PORT_GATEWAY}${NC}   [健康检查: /health]"
+echo -e "Orchestrator:  ${GREEN}http://localhost:${PORT_ORCH}${NC}      [健康检查: /health]"
+echo -e "Skills API:    ${GREEN}http://localhost:${PORT_SKILLS}${NC}    [健康检查: /api/v1/health]"
+echo -e "RAG Pipeline:  ${GREEN}http://localhost:${PORT_RAG}${NC}       [健康检查: /api/v1/health]"
 echo ""
-echo -e "${YELLOW}查看日志: docker compose -f deploy/docker/docker-compose.yml logs -f [service_name]${NC}"
-echo -e "${YELLOW}停止环境: ./scripts/stop.sh${NC}"
+echo -e "${YELLOW}日志路径: logs/<service>/*.log${NC}"
+echo -e "${YELLOW}PID 文件: logs/pids/<service>.pid${NC}"
+echo -e "${YELLOW}生产环境脚本: ./scripts/prod.sh${NC}"
+wait

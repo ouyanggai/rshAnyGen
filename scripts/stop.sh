@@ -12,8 +12,33 @@ cd "$PROJECT_ROOT"
 
 echo -e "${YELLOW}=== 停止 rshAnyGen 开发环境 ===${NC}"
 
-# 停止所有服务
-docker compose -f deploy/docker/docker-compose.yml down
+# 停止 PID 文件记录的进程
+if [ -d "logs/pids" ]; then
+    echo -e "${YELLOW}停止 Python/Node 进程...${NC}"
+    for pid_file in logs/pids/*.pid; do
+        if [ -f "$pid_file" ]; then
+            pid=$(cat "$pid_file")
+            service_name=$(basename "$pid_file" .pid)
+            if ps -p "$pid" > /dev/null 2>&1; then
+                kill -9 "$pid"
+                echo -e "已停止 $service_name (PID: $pid)"
+            else
+                echo -e "$service_name (PID: $pid) 已不在运行"
+            fi
+            rm "$pid_file"
+        fi
+    done
+fi
+
+# 备用：按端口停止
+echo -e "${YELLOW}检查残留端口占用...${NC}"
+for port in 9300 9301 9302 9303 9305; do
+    pids=$(lsof -ti tcp:"$port" || true)
+    if [[ -n "$pids" ]]; then
+        echo -e "释放端口 $port (PIDs: $pids)"
+        echo "$pids" | xargs kill -9 || true
+    fi
+done
 
 echo -e "${GREEN}=== 所有服务已停止 ===${NC}"
 echo -e "${YELLOW}如需删除数据卷，运行: docker compose -f deploy/docker/docker-compose.yml down -v${NC}"

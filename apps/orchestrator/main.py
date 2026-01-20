@@ -25,7 +25,7 @@ if project_root not in sys.path:
 
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
-from apps.orchestrator.graph.agent_graph import create_agent_graph
+from apps.orchestrator.graph import create_agent_graph
 
 # Initialize logging
 log_manager = LogManager("orchestrator")
@@ -39,7 +39,6 @@ except Exception as e:
     logger.warning(f"Failed to load config: {e}. Using defaults.")
     config = {}
 
-# Initialize Graph
 agent_graph = create_agent_graph()
 
 @asynccontextmanager
@@ -69,6 +68,7 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     chat_history: Optional[List[Dict[str, str]]] = None
+    llm_config: Optional[Dict[str, str]] = None  # e.g. {"api_key": "...", "base_url": "..."}
 
 class ChatResponse(BaseModel):
     response: str
@@ -82,77 +82,76 @@ async def health_check():
 @app.get("/test/llm")
 async def test_llm():
     """Test LLM directly"""
-    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
+    from apps.orchestrator.services.llm_client import LLMClient
 
-    client = SimpleLLMClient()
-    result = await client.achat(["你好"])
-    return {"status": "success", "response": result}
-
-@app.post("/api/v1/chat/simple")
-async def chat_simple(request: ChatRequest):
-    """Simple chat endpoint without Agent Graph"""
-    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
-
-    async def event_generator():
-        try:
-            client = SimpleLLMClient()
-            response = await client.achat([request.message])
-            yield json.dumps({"type": "chunk", "content": response}) + "\n"
-            yield json.dumps({"type": "done"}) + "\n"
-        except Exception as e:
-            logger.error(f"Error in simple chat: {e}", exc_info=True)
-            yield json.dumps({"type": "error", "message": str(e)}) + "\n"
-        finally:
-            yield "data: [DONE]\n\n"
-
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+    llm = LLMClient().get_chat_model()
+    result = await llm.ainvoke("你好")
+    return {"status": "success", "response": result.content}
 
 @app.post("/api/v1/chat")
 async def chat(request: ChatRequest):
-    """Process chat message through agent graph with streaming"""
+    """Process chat message through LangGraph"""
     async def event_generator():
         try:
-            # Initial state
-            initial_state = {
+            state = {
                 "session_id": request.session_id,
                 "user_message": request.message,
-                "messages": [], 
+                "messages": request.chat_history or [],
+                "intent": "",
+                "selected_skill": None,
+                "skill_parameters": None,
+                "tool_call_approved": True,
+                "retrieved_docs": [],
+                "reranked_docs": [],
+                "tool_results": None,
+                "final_answer": "",
+                "citations": [],
+                "metadata": {},
+                "llm_config": request.llm_config,
             }
-            
+
+            node_thinking = {
+                "intent_classifier": "正在分析意图...",
+                "skill_selector": "正在选择工具...",
+                "tool_executor": "正在调用工具...",
+                "rag_retriever": "正在检索知识库...",
+                "llm_generator": "正在生成回复...",
+            }
+            emitted = set()
+            final_answer = None
+
             config = {"configurable": {"thread_id": request.session_id}}
-            
-            # Stream events from the graph
-            # We use astream_events v2 which provides standardized event schema
-            async for event in agent_graph.astream_events(initial_state, config=config, version="v2"):
-                kind = event["event"]
-                
-                # Handle different event types
-                if kind == "on_chat_model_stream":
-                    # Stream tokens
-                    content = event["data"]["chunk"].content
-                    if content:
-                        yield json.dumps({"type": "chunk", "content": content}) + "\n"
-                        
-                elif kind == "on_tool_start":
-                    # Tool execution started
-                    tool_name = event["name"]
-                    yield json.dumps({"type": "thinking", "content": f"正在使用工具: {tool_name}..."}) + "\n"
-                    
-                elif kind == "on_tool_end":
-                    # Tool execution finished
-                    yield json.dumps({"type": "thinking", "content": f"工具执行完成"}) + "\n"
-                
-                elif kind == "on_chain_end":
-                    # Check if it's the final output
-                    if event["name"] == "LangGraph":
-                        # We could send citations here if we had them in the state
-                        pass
+
+            async for event in agent_graph.astream_events(
+                state,
+                config=config,
+                version="v1",
+            ):
+                event_type = event.get("event")
+                name = event.get("name")
+                if event_type == "on_chain_start" and name in node_thinking and name not in emitted:
+                    emitted.add(name)
+                    yield json.dumps({"type": "thinking", "content": node_thinking[name]}) + "\n"
+
+                if event_type == "on_chain_end" and name == "llm_generator":
+                    data = event.get("data", {})
+                    output = data.get("output") or data.get("outputs") or {}
+                    if isinstance(output, dict):
+                        final_answer = output.get("final_answer") or final_answer
+                    elif isinstance(output, str):
+                        final_answer = output
+
+            if final_answer:
+                yield json.dumps({"type": "chunk", "content": final_answer}) + "\n"
+
+            yield json.dumps({"type": "done"}) + "\n"
 
         except Exception as e:
             logger.error(f"Error processing chat: {e}", exc_info=True)
             yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+        finally:
+            yield "data: [DONE]\n\n"
 
-    # Return as line-delimited JSON stream
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 if __name__ == "__main__":

@@ -25,9 +25,52 @@ log_manager = LogManager("rag_pipeline")
 logger = log_manager.get_logger()
 
 # Load config
+def _merge_dict(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            base[key] = _merge_dict(base.get(key, {}), value)
+        else:
+            base[key] = value
+    return base
+
+def _coerce_int(value: Any) -> Any:
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
+
 try:
     config_loader = ConfigLoader()
     config = config_loader.load_defaults()
+    rag_config = config_loader.load_config("rag")
+    embedding_config = config_loader.load_config("embedding")
+    vector_db_config = config_loader.load_config("vector_db")
+    _merge_dict(config, rag_config)
+
+    embedding_settings = dict(config.get("embedding", {}))
+    active_embedding = embedding_config.get("active_embedding")
+    embedding_providers = embedding_config.get("embedding_providers", {})
+    if active_embedding and active_embedding in embedding_providers:
+        provider_config = dict(embedding_providers.get(active_embedding, {}))
+        embedding_settings["provider"] = active_embedding
+        if "model" in provider_config:
+            embedding_settings["model"] = provider_config.get("model")
+        if "dimension" in provider_config:
+            embedding_settings["dimension"] = _coerce_int(provider_config.get("dimension"))
+        embedding_settings[active_embedding] = provider_config
+    config["embedding"] = embedding_settings
+
+    vector_db_settings = dict(config.get("vector_db", {}))
+    active_vector_db = vector_db_config.get("active")
+    vector_db_providers = vector_db_config.get("providers", {})
+    if active_vector_db and active_vector_db in vector_db_providers:
+        provider_config = dict(vector_db_providers.get(active_vector_db, {}))
+        vector_db_settings.update(provider_config)
+        vector_db_settings["provider"] = active_vector_db
+    if "port" in vector_db_settings:
+        vector_db_settings["port"] = _coerce_int(vector_db_settings.get("port"))
+    if "dimension" in vector_db_settings:
+        vector_db_settings["dimension"] = _coerce_int(vector_db_settings.get("dimension"))
+    config["vector_db"] = vector_db_settings
 except Exception as e:
     logger.warning(f"Failed to load config: {e}. Using defaults.")
     config = {}

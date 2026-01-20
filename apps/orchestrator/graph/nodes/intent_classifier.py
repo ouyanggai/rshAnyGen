@@ -1,6 +1,5 @@
 """意图识别节点"""
 from typing import Any
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..state import AgentState
 from apps.shared.config_loader import ConfigLoader
@@ -33,19 +32,21 @@ async def intent_classifier(state: AgentState) -> AgentState:
 
 只返回一个词：search、knowledge 或 chat，不要返回其他内容。"""
 
-    # 使用 SimpleLLMClient
-    from apps.orchestrator.services.simple_llm_client import SimpleLLMClient
+    from apps.orchestrator.services.llm_client import LLMClient
 
-    client = SimpleLLMClient()
+    llm_config = state.get("llm_config") or {}
+    client = LLMClient(
+        api_key=llm_config.get("api_key"),
+        base_url=llm_config.get("base_url")
+    )
+    llm = client.get_chat_model(temperature=0.1)
 
     try:
-        # 构建完整提示
         full_prompt = f"{system_prompt}\n\n用户输入：{state['user_message']}\n\n意图："
 
-        response = await client.achat([full_prompt], temperature=0.1)
-        intent = response.strip().lower()
+        response = await llm.ainvoke(full_prompt)
+        intent = response.content.strip().lower()
 
-        # 验证并设置意图
         valid_intents = ["search", "knowledge", "chat"]
         if intent not in valid_intents:
             logger.warning(
@@ -58,7 +59,6 @@ async def intent_classifier(state: AgentState) -> AgentState:
 
     except Exception as e:
         logger.error(f"Error in intent classification: {e}")
-        # 出错时默认为 chat
         state["intent"] = "chat"
 
     return state
