@@ -69,6 +69,7 @@ class ChatRequest(BaseModel):
     message: str
     chat_history: Optional[List[Dict[str, str]]] = None
     llm_config: Optional[Dict[str, str]] = None  # e.g. {"api_key": "...", "base_url": "..."}
+    enable_search: bool = False  # 是否启用联网搜索
 
 class ChatResponse(BaseModel):
     response: str
@@ -108,9 +109,11 @@ async def chat(request: ChatRequest):
                 "citations": [],
                 "metadata": {},
                 "llm_config": request.llm_config,
+                "enable_search": request.enable_search,
             }
 
             node_thinking = {
+                "rag_checker": "正在检查知识库...",
                 "intent_classifier": "正在分析意图...",
                 "skill_selector": "正在选择工具...",
                 "tool_executor": "正在调用工具...",
@@ -119,6 +122,7 @@ async def chat(request: ChatRequest):
             }
             emitted = set()
             final_answer = None
+            has_streamed = False
 
             config = {"configurable": {"thread_id": request.session_id}}
 
@@ -129,10 +133,22 @@ async def chat(request: ChatRequest):
             ):
                 event_type = event.get("event")
                 name = event.get("name")
+                tags = event.get("tags", []) or []
+
+                # 1. 处理思考过程
                 if event_type == "on_chain_start" and name in node_thinking and name not in emitted:
                     emitted.add(name)
                     yield json.dumps({"type": "thinking", "content": node_thinking[name]}) + "\n"
 
+                # 2. 处理流式输出 (仅针对 final_answer)
+                if event_type == "on_chat_model_stream" and "final_answer" in tags:
+                    chunk = event.get("data", {}).get("chunk", {})
+                    content = chunk.content if hasattr(chunk, "content") else chunk.get("content", "")
+                    if content:
+                        has_streamed = True
+                        yield json.dumps({"type": "chunk", "content": content}) + "\n"
+
+                # 3. 捕获最终结果 (作为备份)
                 if event_type == "on_chain_end" and name == "llm_generator":
                     data = event.get("data", {})
                     output = data.get("output") or data.get("outputs") or {}
@@ -141,7 +157,8 @@ async def chat(request: ChatRequest):
                     elif isinstance(output, str):
                         final_answer = output
 
-            if final_answer:
+            # 4. 如果没有流式输出，则一次性返回
+            if not has_streamed and final_answer:
                 yield json.dumps({"type": "chunk", "content": final_answer}) + "\n"
 
             yield json.dumps({"type": "done"}) + "\n"

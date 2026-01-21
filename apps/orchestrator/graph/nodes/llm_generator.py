@@ -1,5 +1,4 @@
 """LLM 生成节点"""
-from typing import Any, Optional
 
 from ..state import AgentState
 from apps.shared.config_loader import ConfigLoader
@@ -34,7 +33,10 @@ async def llm_generator(state: AgentState) -> AgentState:
     prompt = _build_prompt(state)
 
     try:
-        response = await llm.ainvoke(prompt)
+        response = await llm.ainvoke(
+            prompt,
+            config={"tags": ["final_answer"]}
+        )
         state["final_answer"] = response.content
 
         # 确保 metadata 字段已初始化
@@ -67,35 +69,65 @@ def _build_prompt(state: AgentState) -> str:
         构建好的提示词字符串
     """
     intent = state.get("intent", "chat")
+    user_message = state["user_message"]
+    retrieved_docs = state.get("retrieved_docs", [])
+    tool_results = state.get("tool_results")
 
-    if intent == "search":
-        if state.get("tool_results"):
-            return f"""基于以下搜索结果回答用户问题：
+    # 有知识库内容的情况（严谨模式）
+    if retrieved_docs:
+        # 打印检索到的文档内容到控制台，以便调试
+        logger.info(f"\n=== Vector Store Retrieval Result (Session: {state.get('session_id')}) ===")
+        for i, doc in enumerate(retrieved_docs):
+            logger.info(f"Doc {i+1} [Score: {doc.get('score', 0):.4f}]:\nContent: {doc.get('content', '')}\nMetadata: {doc.get('metadata', {})}")
+        logger.info("==============================================================\n")
 
-搜索结果：
-{state['tool_results']}
+        docs_text = "\n\n---\n\n".join([
+            f"[相关度: {doc.get('score', 0):.2f}]\n{doc.get('content', '')}"
+            for doc in retrieved_docs
+        ])
 
-用户问题：{state['user_message']}
+        return f"""你是一个专业、乐于助人的 AI 助手。请基于以下知识库内容回答用户问题。
 
-请提供准确、有用的回答。如果搜索结果不足，可以基于你的知识补充说明。"""
-        else:
-            return state["user_message"]
-
-    elif intent == "knowledge":
-        if state.get("retrieved_docs"):
-            docs_text = "\n\n".join(
-                [doc.get("content", "") for doc in state["retrieved_docs"]]
-            )
-            return f"""基于以下知识库文档回答用户问题：
-
-相关文档：
+=== 知识库内容 ===
 {docs_text}
 
-用户问题：{state['user_message']}
+=== 用户问题 ===
+{user_message}
 
-请基于文档内容准确回答。如果文档中没有相关信息，请明确说明。"""
-        else:
-            return state["user_message"]
+=== 回答要求 ===
+1. 保持专业、客观、有条理的回答风格。
+2. 请使用 Markdown 格式进行排版（如标题、列表、代码块等）。
+3. 仔细分析用户意图，只回答相关信息（如只问"XX是谁"则不提供IP/MAC）。
+4. 严格基于知识库内容回答。
+5. 如果知识库完全没有相关信息，请直接说明："根据现有知识库，我无法找到关于该问题的相关信息。"
+6. 不要列出无关的元数据或所有细节，除非用户明确要求。
+"""
 
-    else:  # chat
-        return state["user_message"]
+    # 无知识库内容的情况（通用闲聊）
+    elif intent == "search" and tool_results:
+        return f"""你是一个智能助手。基于以下搜索结果回答用户问题。
+=== 搜索结果 ===
+{tool_results}
+=== 用户问题 ===
+{user_message}
+
+=== 回答要求 ===
+1. 先理解用户真正想知道什么，只回答相关信息
+2. 基于搜索结果提供准确、有用的回答
+3. 如果搜索结果不足，可以适当补充说明，但明确区分哪些是搜索结果，哪些是你的补充
+4. 保持客观、中立、专业
+
+现在请回答："""
+
+    else:
+        return f"""你是一个专业、严谨的 AI 助手。
+    
+=== 用户问题 ===
+{user_message}
+
+=== 回答要求 ===
+1. 请用专业、客观、简洁的风格回答用户的问题。
+2. 严禁使用俏皮、卖萌、幽默或过于口语化的表达。
+3. 如果问题需要具体事实而你不知道，请诚实说明。
+4. 直接回答问题，不要有多余的废话。
+"""

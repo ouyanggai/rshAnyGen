@@ -32,7 +32,7 @@ fi
 
 # 备用：按端口停止
 echo -e "${YELLOW}检查残留端口占用...${NC}"
-for port in 9300 9301 9302 9303 9305; do
+for port in 6333 9300 9301 9302 9303 9305; do
     pids=$(lsof -ti tcp:"$port" || true)
     if [[ -n "$pids" ]]; then
         echo -e "释放端口 $port (PIDs: $pids)"

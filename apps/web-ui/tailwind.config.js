@@ -1,3 +1,5 @@
+import typography from '@tailwindcss/typography';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,46 +10,47 @@ export default {
   theme: {
     extend: {
       colors: {
-        // SaaS AI Primary - Trust Blue
+        // SaaS AI Primary - New Energy Blue/Green
         primary: {
-          DEFAULT: '#2563EB',
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          200: '#BFDBFE',
-          300: '#93C5FD',
-          400: '#60A5FA',
-          500: '#3B82F6',
-          600: '#2563EB',
-          700: '#1D4ED8',
-          800: '#1E40AF',
-          900: '#1E3A8A',
-          950: '#172554',
+          DEFAULT: '#007AFF', // Logo Blue
+          50: '#F0F9FF',
+          100: '#E0F2FE',
+          200: '#BAE6FD',
+          300: '#7DD3FC',
+          400: '#38BDF8',
+          500: '#007AFF',
+          600: '#0284C7',
+          700: '#0369A1',
+          800: '#075985',
+          900: '#0C4A6E',
+          950: '#082F49',
         },
-        // Secondary - Soft pastel blue
+        // Secondary - New Energy Green
         secondary: {
-          DEFAULT: '#87CEEB',
-          light: '#A8D8EA',
-          dark: '#5FB5D0',
+          DEFAULT: '#00B388', // Logo Green
+          light: '#34D399',
+          dark: '#059669',
         },
-        // CTA - Vibrant Orange
-        accent: {
-          DEFAULT: '#F97316',
-          light: '#FB923C',
-          dark: '#EA580C',
-        },
-        // Backgrounds - Off-white hierarchy
+        // Backgrounds
         bg: {
-          primary: '#F8FAFC',
-          secondary: '#FFFFFF',
-          tertiary: '#F1F5F9',
+          primary: '#F8FAFC', // Light mode bg
+          secondary: '#FFFFFF', // Light mode card bg
+          tertiary: '#F1F5F9', // Light mode input bg
+          dark: '#0F172A', // Dark mode bg
+          'card-dark': '#1E293B', // Dark mode card bg
+          'input-dark': '#334155', // Dark mode input bg
         },
-        // Text - High contrast for accessibility
+        // Text
         text: {
           primary: '#0F172A',
           secondary: '#475569',
           muted: '#94A3B8',
+          inverse: '#FFFFFF',
+          'primary-dark': '#F1F5F9',
+          'secondary-dark': '#CBD5E1',
         },
         border: '#E2E8F0',
+        'border-dark': '#334155',
       },
       fontFamily: {
         heading: ['Outfit', 'sans-serif'],
@@ -109,5 +112,7 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    typography,
+  ],
 };

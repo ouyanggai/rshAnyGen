@@ -79,6 +79,9 @@ class TextChunker:
         Returns:
             List of parent and child chunks
         """
+        if not text or not text.strip():
+            return []
+
         chunks = []
 
         # First create parent chunks
@@ -101,6 +104,13 @@ class TextChunker:
             child_chunks = self._split_recursive(
                 parent_content, self.child_size, self.child_overlap
             )
+            
+            # If split recursive returned empty or only one chunk same as parent
+            # we should still keep at least one child if it makes sense, 
+            # but usually we want smaller chunks.
+            # If parent is small enough, it might be its own child.
+            if not child_chunks and parent_content:
+                 child_chunks = [parent_content]
 
             for j, child_content in enumerate(child_chunks):
                 chunks.append(
@@ -178,11 +188,27 @@ class TextChunker:
 
             # Calculate next start with overlap
             if split_point > overlap:
-                next_start = split_point - overlap
+                raw_next_start = split_point - overlap
             else:
-                next_start = split_point  # Advance by full chunk if smaller than overlap
+                raw_next_start = split_point
             
-            remaining = remaining[next_start:]
+            # Adjust next_start to align with sentence boundaries
+            # Find the best split point in the overlap region
+            adjusted_start = raw_next_start
+            if split_point > overlap and raw_next_start > 0:
+                # Look for separators in the text before raw_next_start
+                # This ensures the next chunk starts after a separator
+                boundary_search_text = remaining[:raw_next_start]
+                # Reuse find_split_point which finds the last separator
+                best_boundary = self._find_split_point(boundary_search_text)
+                if best_boundary > 0:
+                    adjusted_start = best_boundary
+            
+            # Ensure we make progress to avoid infinite loop
+            if adjusted_start == 0:
+                adjusted_start = split_point
+
+            remaining = remaining[adjusted_start:]
 
         return [c for c in chunks if c.strip()]
 

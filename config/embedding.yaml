@@ -2,20 +2,20 @@
 embedding_providers:
   qwen:
     api_key: "${QWEN_API_KEY}"
-    model: "text-embedding-v3"
+    model: "text-embedding-v2"
     dimension: 1024
 
   zhipu:
-    api_key: "${ZHIPU_API_KEY}"
+    api_key: "${ZHIPU_LLM_API_KEY}"
     model: "embedding-3"
-    dimension: 1024
+    dimension: 2048
 
   cohere:
     api_key: "${COHERE_API_KEY}"
     model: "embed-multilingual-v4.0"
     dimension: 1024
 
-active_embedding: "qwen"
+active_embedding: "zhipu"
 
 reranker_providers:
   qwen:

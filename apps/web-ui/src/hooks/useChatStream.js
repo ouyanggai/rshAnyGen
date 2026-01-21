@@ -6,16 +6,19 @@ export function useChatStream() {
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
 
-  const send = useCallback(async (message, callbacks = {}) => {
+  const send = useCallback(async (message, options = {}) => {
     setIsLoading(true);
     setError(null);
 
     try {
       await streamChat(message, {
-        ...callbacks,
+        enableSearch: options.enableSearch || false,
+        onThinking: options.onThinking,
+        onChunk: options.onChunk,
+        onDone: options.onDone,
         onError: (errorMsg) => {
           setError(errorMsg);
-          callbacks.onError?.(errorMsg);
+          options.onError?.(errorMsg);
         },
       });
     } catch (err) {

@@ -3,13 +3,14 @@
  */
 
 // 流式聊天
-export async function streamChat(message, callbacks = {}) {
+export async function streamChat(message, options = {}) {
   const {
+    enableSearch = false,
     onThinking = () => {},
     onChunk = () => {},
     onDone = () => {},
     onError = () => {},
-  } = callbacks;
+  } = options;
 
   try {
     const response = await fetch('/api/v1/chat/stream', {
@@ -17,7 +18,7 @@ export async function streamChat(message, callbacks = {}) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message, stream: true }),
+      body: JSON.stringify({ message, enable_search: enableSearch, stream: true }),
     });
 
     if (!response.ok) {

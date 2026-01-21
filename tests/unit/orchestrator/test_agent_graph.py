@@ -117,6 +117,7 @@ def test_state_flow_routing():
         session_id="test",
         user_message="搜索",
         messages=[],
+        enable_search=True,
         intent="search",
         selected_skill=None,
         skill_parameters=None,

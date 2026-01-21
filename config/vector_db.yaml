@@ -13,4 +13,4 @@ providers:
     port: "${QDRANT_PORT:-6333}"
     api_key: "${QDRANT_API_KEY:-}"
 
-active: "milvus"
+active: "qdrant"

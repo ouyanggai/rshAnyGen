@@ -39,7 +39,8 @@ async def test_intent_classifier_search():
     mock_llm_instance = MagicMock()
     mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
-    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
+    with patch("apps.orchestrator.graph.nodes.intent_classifier._should_use_knowledge", return_value=False), \
+         patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "search"
@@ -71,7 +72,8 @@ async def test_intent_classifier_knowledge():
     mock_llm_instance = MagicMock()
     mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
-    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
+    with patch("apps.orchestrator.graph.nodes.intent_classifier._should_use_knowledge", return_value=False), \
+         patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "knowledge"
@@ -103,7 +105,8 @@ async def test_intent_classifier_chat():
     mock_llm_instance = MagicMock()
     mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
-    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
+    with patch("apps.orchestrator.graph.nodes.intent_classifier._should_use_knowledge", return_value=False), \
+         patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"
@@ -135,7 +138,8 @@ async def test_intent_classifier_invalid_intent():
     mock_llm_instance = MagicMock()
     mock_llm_instance.ainvoke = AsyncMock(return_value=mock_response)
 
-    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
+    with patch("apps.orchestrator.graph.nodes.intent_classifier._should_use_knowledge", return_value=False), \
+         patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"  # 默认值
@@ -164,7 +168,8 @@ async def test_intent_classifier_error_handling():
     mock_llm_instance = MagicMock()
     mock_llm_instance.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
 
-    with patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
+    with patch("apps.orchestrator.graph.nodes.intent_classifier._should_use_knowledge", return_value=False), \
+         patch("apps.orchestrator.services.llm_client.ChatOpenAI", return_value=mock_llm_instance):
         result = await intent_classifier(state)
 
         assert result["intent"] == "chat"  # 错误时默认为 chat
@@ -379,7 +384,7 @@ async def test_llm_generator_knowledge_with_docs():
         assert result["final_answer"] == "根据知识库文档，系统架构如下..."
         # 验证 prompt 包含文档内容
         call_args = mock_llm_instance.ainvoke.call_args[0][0]
-        assert "知识库文档" in call_args
+        assert "知识库内容" in call_args
 
 
 @pytest.mark.unit
@@ -433,7 +438,8 @@ def test_build_prompt_chat():
     )
 
     prompt = _build_prompt(state)
-    assert prompt == "你好"
+    assert "你好" in prompt
+    assert "专业" in prompt
 
 
 @pytest.mark.unit
@@ -485,7 +491,8 @@ def test_build_prompt_search_no_results():
     )
 
     prompt = _build_prompt(state)
-    assert prompt == "搜索 AI"
+    assert "搜索 AI" in prompt
+    assert "专业" in prompt
 
 
 @pytest.mark.unit
@@ -510,7 +517,7 @@ def test_build_prompt_knowledge_with_docs():
     )
 
     prompt = _build_prompt(state)
-    assert "知识库文档" in prompt
+    assert "知识库内容" in prompt
     assert "文档内容" in prompt
 
 

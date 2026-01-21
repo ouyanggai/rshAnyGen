@@ -6,6 +6,18 @@ export default defineConfig({
   server: {
     port: 9300,
     proxy: {
+      '/api/v1/ingest': {
+        target: 'http://localhost:9305',
+        changeOrigin: true,
+      },
+      '/api/v1/documents': {
+        target: 'http://localhost:9305',
+        changeOrigin: true,
+      },
+      '/api/v1/search': {
+        target: 'http://localhost:9305',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:9301',
         changeOrigin: true,

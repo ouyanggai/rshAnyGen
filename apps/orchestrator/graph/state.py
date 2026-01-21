@@ -14,6 +14,7 @@ class AgentState(MessagesState):
     session_id: str
     user_message: str
     llm_config: Optional[dict] = None  # 包含 api_key, base_url 等
+    enable_search: bool = False  # 是否启用联网搜索
     # chat_history 由 MessagesState 提供
 
     # 中间状态
@@ -23,6 +24,7 @@ class AgentState(MessagesState):
     tool_call_approved: bool = True
 
     # RAG 相关
+    rag_has_relevant: bool  # 快速检查知识库是否有相关内容
     retrieved_docs: List[dict]
     reranked_docs: List[dict]
 

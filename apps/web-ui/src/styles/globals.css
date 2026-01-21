@@ -58,13 +58,23 @@ h1, h2, h3, h4, h5, h6 {
   background: #94A3B8;
 }
 
-/* ========================================
-   安全区域适配 - iOS 刘海屏
-   ======================================== */
+/* 去除默认的 ugly focus outline，使用自定义的 ring */
+*:focus-visible {
+  outline: none;
+}
 
-:root {
-  --safe-top: env(safe-area-inset-top);
-  --safe-bottom: env(safe-area-inset-bottom);
+/* 深色模式滚动条适配 */
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
+}
+
+/* 深色模式全局样式 */
+.dark body {
+  background-color: #0F172A;
+  color: #F1F5F9;
 }
 
 /* ========================================

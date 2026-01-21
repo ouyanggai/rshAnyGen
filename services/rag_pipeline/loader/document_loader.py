@@ -241,17 +241,43 @@ class DocumentLoader:
             for sheet_name in wb.sheetnames:
                 sheet = wb[sheet_name]
                 rows = []
+                # Use iter_rows to iterate through all rows
                 for row in sheet.iter_rows(values_only=True):
                     # Filter out completely empty rows
-                    if any(cell is not None for cell in row):
+                    if any(cell is not None and str(cell).strip() for cell in row):
                         rows.append([str(cell) if cell is not None else "" for cell in row])
 
                 if rows:
-                    # Convert to text representation
+                    # Convert to text representation (tab-separated)
                     sheet_text = "\n".join(["\t".join(row) for row in rows])
                     sheets_data.append(f"=== Sheet: {sheet_name} ===\n{sheet_text}")
 
             content = "\n\n".join(sheets_data) if sheets_data else ""
+            
+            # Fallback if no content found (e.g. read_only=True issues with some files)
+            if not content:
+                 # Try loading without read_only
+                 try:
+                    wb.close()
+                    wb = openpyxl.load_workbook(path, data_only=True)
+                    sheets_data = []
+                    for sheet_name in wb.sheetnames:
+                        sheet = wb[sheet_name]
+                        rows = []
+                        for row in sheet.iter_rows(values_only=True):
+                            if any(cell is not None and str(cell).strip() for cell in row):
+                                rows.append([str(cell) if cell is not None else "" for cell in row])
+                        if rows:
+                            sheet_text = "\n".join(["\t".join(row) for row in rows])
+                            sheets_data.append(f"=== Sheet: {sheet_name} ===\n{sheet_text}")
+                    content = "\n\n".join(sheets_data) if sheets_data else ""
+                 except Exception as e:
+                     logger.warning(f"Fallback Excel load failed: {e}")
+
+            # If still empty, it might be an issue with TextChunker if content is short
+            # But let's check content first.
+            if not content.strip():
+                logger.warning(f"Excel file parsed but content is empty: {path}")
 
             return {
                 "type": "excel",

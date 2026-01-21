@@ -27,6 +27,7 @@ PORT_GATEWAY=$(get_port gateway)
 PORT_ORCH=$(get_port orchestrator)
 PORT_SKILLS=$(get_port skills_registry)
 PORT_RAG=$(get_port rag_pipeline)
+PORT_QDRANT="${QDRANT_PORT:-6333}"
 
 if [[ -z "$PORT_WEBUI" || -z "$PORT_GATEWAY" || -z "$PORT_ORCH" || -z "$PORT_SKILLS" || -z "$PORT_RAG" ]]; then
   echo -e "${RED}错误: 无法从 config/default.yaml 读取端口${NC}"
@@ -95,6 +96,51 @@ start_web_ui() {
   echo -e "${GREEN}Web UI 启动完成 (PID: $pid)，日志: $log${NC}"
 }
 
+# 启动 Qdrant 向量数据库
+start_qdrant() {
+  local port="$1"
+  local qdrant_bin="${PROJECT_ROOT}/bin/qdrant"
+  local log_dir="${PROJECT_ROOT}/logs/qdrant"
+  local log="${log_dir}/qdrant.log"
+  local pid_file="${PROJECT_ROOT}/logs/pids/qdrant.pid"
+
+  mkdir -p "$log_dir"
+
+  # 检查是否已运行
+  if lsof -ti tcp:"$port" > /dev/null 2>&1; then
+    echo -e "${GREEN}Qdrant 已在端口 ${port} 运行${NC}"
+    return
+  fi
+
+  # 检查二进制文件
+  if [[ ! -f "$qdrant_bin" ]]; then
+    echo -e "${RED}错误: Qdrant 二进制文件不存在: $qdrant_bin${NC}"
+    echo -e "${YELLOW}请运行: curl -L https://github.com/qdrant/qdrant/releases/latest/download/qdrant-aarch64-apple-darwin.tar.gz | tar -xz -C bin/${NC}"
+    exit 1
+  fi
+
+  echo -e "${YELLOW}启动 Qdrant 向量数据库，端口 ${port}...${NC}"
+  # 在项目目录中启动 Qdrant，使用默认的 ./storage 路径
+  (cd "$PROJECT_ROOT" && "$qdrant_bin") > "$log" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$pid_file"
+
+  # 等待 Qdrant 就绪
+  echo -e "${YELLOW}等待 Qdrant 启动...${NC}"
+  for i in {1..30}; do
+    if curl -s "http://localhost:${port}/health" > /dev/null 2>&1; then
+      echo -e "${GREEN}Qdrant 启动完成 (PID: $pid)，日志: $log${NC}"
+      return
+    fi
+    sleep 1
+  done
+  echo -e "${RED}Qdrant 启动超时，请检查日志: $log${NC}"
+  exit 1
+}
+
+echo -e "${YELLOW}启动向量数据库 Qdrant...${NC}"
+start_qdrant "$PORT_QDRANT"
+
 echo -e "${YELLOW}启动后端服务...${NC}"
 start_python_module "gateway" "apps.gateway.main" "$PORT_GATEWAY"
 start_python_module "orchestrator" "apps.orchestrator.main" "$PORT_ORCH"
@@ -106,6 +152,7 @@ start_web_ui "$PORT_WEBUI"
 
 echo ""
 echo -e "${GREEN}=== 服务已启动（本地开发）===${NC}"
+echo -e "Qdrant:        ${GREEN}http://localhost:${PORT_QDRANT}${NC}       [健康检查: /health]"
 echo -e "Web UI:        ${GREEN}http://localhost:${PORT_WEBUI}${NC}"
 echo -e "Gateway:       ${GREEN}http://localhost:${PORT_GATEWAY}${NC}   [健康检查: /health]"
 echo -e "Orchestrator:  ${GREEN}http://localhost:${PORT_ORCH}${NC}      [健康检查: /health]"

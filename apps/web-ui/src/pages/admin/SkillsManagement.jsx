@@ -47,11 +47,11 @@ export default function SkillsManagement() {
   }, {});
 
   return (
-    <div className="p-6">
+    <div className="p-6 bg-bg-primary dark:bg-bg-dark min-h-full transition-colors duration-300">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-heading font-semibold">技能管理</h2>
-          <div className="text-sm text-text-muted">
+          <h2 className="text-2xl font-heading font-semibold text-text-primary dark:text-text-primary-dark">技能管理</h2>
+          <div className="text-sm text-text-muted dark:text-text-secondary-dark">
             已启用 {skills.filter(s => s.enabled).length} / {skills.length} 个技能
           </div>
         </div>
@@ -66,7 +66,7 @@ export default function SkillsManagement() {
 
             return (
               <div key={category}>
-                <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
+                <h3 className="text-sm font-semibold text-text-muted dark:text-text-secondary-dark uppercase tracking-wider mb-3">
                   {categoryInfo.label}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -85,8 +85,8 @@ export default function SkillsManagement() {
 
         {skills.length === 0 && (
           <div className="text-center py-12">
-            <CubeIcon className="w-16 h-16 text-text-muted mx-auto mb-4" />
-            <p className="text-text-muted">暂无可用技能</p>
+            <CubeIcon className="w-16 h-16 text-text-muted dark:text-text-muted/30 mx-auto mb-4" />
+            <p className="text-text-muted dark:text-text-secondary-dark">暂无可用技能</p>
           </div>
         )}
       </div>
@@ -98,21 +98,21 @@ function SkillCard({ skill, onToggle }) {
   return (
     <div
       className={`
-        card p-4 transition-all duration-200
-        ${skill.enabled ? 'border-primary/50' : 'opacity-75'}
+        card p-4 transition-all duration-200 bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark rounded-xl shadow-elevation-1
+        ${skill.enabled ? 'border-primary/50 dark:border-primary/50 ring-1 ring-primary/20' : 'opacity-75 hover:opacity-100'}
       `}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <h4 className="font-semibold text-text-primary">{skill.name}</h4>
+            <h4 className="font-semibold text-text-primary dark:text-text-primary-dark">{skill.name}</h4>
             {skill.enabled && (
-              <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">
+              <span className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
                 已启用
               </span>
             )}
           </div>
-          <p className="text-sm text-text-secondary">{skill.description}</p>
+          <p className="text-sm text-text-secondary dark:text-text-secondary-dark">{skill.description}</p>
         </div>
 
         {/* 切换开关 */}
@@ -120,7 +120,7 @@ function SkillCard({ skill, onToggle }) {
           onClick={onToggle}
           className={`
             relative w-12 h-6 rounded-full transition-colors duration-200 flex-shrink-0 ml-4
-            ${skill.enabled ? 'bg-primary' : 'bg-gray-300'}
+            ${skill.enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}
           `}
         >
           <div

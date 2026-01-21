@@ -63,6 +63,7 @@ class LLMClient:
             api_key=self.provider_config.get("api_key"),
             model=model_name,
             temperature=temperature,
+            streaming=True,  # Enable streaming by default
             http_client=_http_client,
             http_async_client=_http_async_client,
         )

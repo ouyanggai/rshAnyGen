@@ -56,19 +56,19 @@ export default function HistoryPage() {
   }, {});
 
   return (
-    <div className="h-full p-6 overflow-y-auto">
+    <div className="h-full p-6 overflow-y-auto bg-bg-primary dark:bg-bg-dark transition-colors duration-300">
       <div className="max-w-4xl mx-auto">
         {/* 标题和搜索 */}
         <div className="mb-6">
-          <h2 className="text-2xl font-heading font-semibold mb-4">对话历史</h2>
+          <h2 className="text-2xl font-heading font-semibold mb-4 text-text-primary dark:text-text-primary-dark">对话历史</h2>
           <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted dark:text-text-secondary-dark" />
             <input
               type="text"
               placeholder="搜索对话..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark rounded-xl text-text-primary dark:text-text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all placeholder-text-muted dark:placeholder-text-muted/50"
             />
           </div>
         </div>
@@ -80,8 +80,8 @@ export default function HistoryPage() {
           </div>
         ) : filteredHistories.length === 0 ? (
           <div className="text-center py-12">
-            <ClockIcon className="w-16 h-16 text-text-muted mx-auto mb-4" />
-            <p className="text-text-muted">
+            <ClockIcon className="w-16 h-16 text-text-muted dark:text-text-muted/30 mx-auto mb-4" />
+            <p className="text-text-muted dark:text-text-secondary-dark">
               {searchQuery ? '没有找到匹配的对话' : '还没有对话历史'}
             </p>
           </div>
@@ -89,7 +89,7 @@ export default function HistoryPage() {
           // 按日期分组显示
           Object.entries(groupedHistories).map(([date, items]) => (
             <div key={date} className="mb-6">
-              <h3 className="text-sm font-medium text-text-muted mb-3 px-1">
+              <h3 className="text-sm font-medium text-text-muted dark:text-text-secondary-dark mb-3 px-1">
                 {new Date(date).toLocaleDateString('zh-CN', {
                   month: 'long',
                   day: 'numeric',
@@ -101,19 +101,19 @@ export default function HistoryPage() {
                   <div
                     key={history.id}
                     onClick={() => handleOpen(history.id)}
-                    className="group flex items-center gap-4 p-4 bg-white rounded-lg border border-border hover:shadow-soft hover:border-primary/30 cursor-pointer transition-all duration-200"
+                    className="group flex items-center gap-4 p-4 bg-white dark:bg-bg-card-dark rounded-xl border border-border dark:border-border-dark hover:shadow-elevation-1 hover:border-primary/30 dark:hover:border-primary/30 cursor-pointer transition-all duration-200"
                   >
                     {/* 图标 */}
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <ClockIcon className="w-5 h-5 text-primary" />
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 dark:bg-primary/20 flex items-center justify-center flex-shrink-0">
+                      <ClockIcon className="w-5 h-5 text-primary dark:text-primary-400" />
                     </div>
 
                     {/* 内容 */}
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-text-primary truncate">
+                      <h4 className="font-medium text-text-primary dark:text-text-primary-dark truncate">
                         {history.title}
                       </h4>
-                      <p className="text-sm text-text-muted">
+                      <p className="text-sm text-text-muted dark:text-text-secondary-dark">
                         {history.messages} 条消息 · {new Date(history.updatedAt).toLocaleTimeString('zh-CN', {
                           hour: '2-digit',
                           minute: '2-digit',
@@ -127,7 +127,7 @@ export default function HistoryPage() {
                         e.stopPropagation();
                         handleDelete(history.id);
                       }}
-                      className="p-2 text-text-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      className="p-2 text-text-muted dark:text-text-secondary-dark hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                     >
                       <TrashIcon className="w-5 h-5" />
                     </button>

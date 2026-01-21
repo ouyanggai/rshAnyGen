@@ -23,10 +23,12 @@ class BM25Index:
         self.k1 = k1
         self.b = b
         self.doc_count = 0
-        self.doc_lengths = []
+        self.doc_lengths_by_id = {}
         self.avg_doc_length = 0
         self.doc_freqs = defaultdict(int)  # Document frequency
         self.inverted_index = defaultdict(lambda: defaultdict(int))  # Term -> Doc -> Count
+        self.doc_contents = {}
+        self.doc_metadata = {}
 
     def index_documents(self, documents: List[Dict[str, Any]]) -> None:
         """Index documents for BM25 search
@@ -35,16 +37,25 @@ class BM25Index:
             documents: List of documents with chunk_id and content
         """
         self.doc_count = len(documents)
+        self.doc_lengths_by_id = {}
+        self.doc_contents = {}
+        self.doc_metadata = {}
+        self.doc_freqs = defaultdict(int)
+        self.inverted_index = defaultdict(lambda: defaultdict(int))
         total_length = 0
 
         for doc in documents:
             doc_id = doc.get("chunk_id", "")
             content = doc.get("content", "")
+            metadata = doc.get("metadata")
             terms = self._tokenize(content)
 
             doc_length = len(terms)
-            self.doc_lengths.append(doc_length)
+            self.doc_lengths_by_id[doc_id] = doc_length
             total_length += doc_length
+            self.doc_contents[doc_id] = content
+            if metadata is not None:
+                self.doc_metadata[doc_id] = metadata
 
             # Track unique terms for this doc
             seen_terms = set()
@@ -108,8 +119,7 @@ class BM25Index:
 
             for doc_id, term_freq in self.inverted_index[term].items():
                 # Get doc length
-                doc_idx = int(doc_id.split("_")[-1]) if "_" in doc_id else 0
-                doc_length = self.doc_lengths[doc_idx] if doc_idx < len(self.doc_lengths) else self.avg_doc_length
+                doc_length = self.doc_lengths_by_id.get(doc_id, self.avg_doc_length)
 
                 # BM25 score
                 numerator = term_freq * (self.k1 + 1)
@@ -125,8 +135,9 @@ class BM25Index:
         return [
             SearchResult(
                 chunk_id=doc_id,
-                content="",  # Would need to lookup from original docs
+                content=self.doc_contents.get(doc_id, ""),
                 score=score,
+                metadata=self.doc_metadata.get(doc_id),
             )
             for doc_id, score in sorted_results
         ]
@@ -165,6 +176,17 @@ class Retriever:
         
         # Index for BM25
         self.bm25_index.index_documents(chunks)
+
+    def hydrate_bm25(self, limit: Optional[int] = None) -> int:
+        if self.bm25_index.doc_count > 0:
+            return self.bm25_index.doc_count
+
+        chunks = self.vector_store.fetch_all_chunks(limit=limit)
+        if not chunks:
+            return 0
+
+        self.bm25_index.index_documents(chunks)
+        return self.bm25_index.doc_count
 
     async def retrieve(
         self,
@@ -220,6 +242,9 @@ class Retriever:
         Returns:
             List of fused search results
         """
+        if self.bm25_index.doc_count == 0:
+            self.hydrate_bm25()
+
         # Get vector results
         vector_results = self.vector_store.search(query_embedding, top_k=self.vector_top_k)
 
