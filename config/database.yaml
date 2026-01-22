@@ -1,0 +1,7 @@
+postgresql:
+  host: 192.168.1.248
+  port: 5432
+  database: rag_db
+  user: admin
+  password: your_strong_password_here
+  pool_size: 10

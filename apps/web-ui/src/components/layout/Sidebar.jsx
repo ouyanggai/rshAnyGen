@@ -9,22 +9,26 @@ import {
   BeakerIcon,
   WrenchIcon,
   BookOpenIcon,
+  UsersIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   MoonIcon,
   SunIcon,
   PlusIcon,
-  SparklesIcon
+  SparklesIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
 
 const navItems = [
   { to: '/', icon: ChatBubbleLeftRightIcon, label: '聊天' },
   { to: '/history', icon: ClockIcon, label: '历史' },
   { to: '/settings', icon: Cog6ToothIcon, label: '设置' },
+  { to: '/diagnostics', icon: InformationCircleIcon, label: '诊断' },
 ];
 
 const adminNavItems = [
   { to: '/admin/models', icon: BeakerIcon, label: '模型配置' },
+  { to: '/admin/users', icon: UsersIcon, label: '用户管理' },
   { to: '/admin/skills', icon: WrenchIcon, label: '技能管理' },
   { to: '/admin/knowledge', icon: BookOpenIcon, label: '知识库' },
 ];

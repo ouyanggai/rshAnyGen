@@ -1,0 +1,42 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+
+        # Get admin token
+        send "ACCESS_TOKEN=\$(curl -s -X POST http://localhost:8080/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli' -d 'username=admin' -d 'password=admin_password' -d 'grant_type=password' | jq -r '.access_token')\r"
+        expect "#"
+
+        # List all clients with their IDs
+        send "echo '=== All clients ==='\r"
+        expect "#"
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen/clients -H \"Authorization: Bearer \${ACCESS_TOKEN}\" | jq -r '.[] | \"\\(.id) - \\(.clientId)\"'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Get full backend-api client info
+        send "echo '=== backend-api full info ==='\r"
+        expect "#"
+        send "curl -s 'http://localhost:8080/admin/realms/rshAnyGen/clients?clientId=backend-api' -H \"Authorization: Bearer \${ACCESS_TOKEN}\"\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

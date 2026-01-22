@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+        send "docker logs keycloak --tail 50\r"
+        expect {
+            -timeout 30
+            "#"
+        }
+        send "docker logs keycloak-db --tail 20\r"
+        expect {
+            -timeout 10
+            "#"
+        }
+        send "docker ps\r"
+        expect "#"
+        send "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

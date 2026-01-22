@@ -1,7 +1,7 @@
 # 向量数据库配置
 providers:
   milvus:
-    host: "${MILVUS_HOST:-localhost}"
+    host: "${MILVUS_HOST:-192.168.1.248}"
     port: "${MILVUS_PORT:-19530}"
     user: "${MILVUS_USER:-}"
     password: "${MILVUS_PASSWORD:-}"
@@ -13,4 +13,4 @@ providers:
     port: "${QDRANT_PORT:-6333}"
     api_key: "${QDRANT_API_KEY:-}"
 
-active: "qdrant"
+active: "milvus"

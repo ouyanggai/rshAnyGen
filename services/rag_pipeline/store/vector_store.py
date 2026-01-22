@@ -35,7 +35,7 @@ class VectorStore:
         self.provider = vector_db_config.get("provider", "milvus")
         self.host = vector_db_config.get("host", "localhost")
         self.port = vector_db_config.get("port", 19530)
-        self.collection_name = vector_db_config.get("collection", "knowledge_base")
+        self.collection_name = vector_db_config.get("collection", "knowledge_bases")
         self.dimension = vector_db_config.get("dimension", 1024)
 
         # Index settings
@@ -103,13 +103,44 @@ class VectorStore:
                     logger.info(f"Collection '{name}' already exists")
                     return True
 
+                # Create schema for Multi-KB support
+                from pymilvus import DataType
+                
+                schema = client.create_schema(
+                    auto_id=True,
+                    enable_dynamic_field=True,
+                )
+                
+                # Primary Key
+                schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
+                
+                # Vector
+                schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=self.dimension)
+                
+                # Partition Key (KB ID)
+                schema.add_field(field_name="kb_id", datatype=DataType.VARCHAR, max_length=64, is_partition_key=True)
+                
+                # Metadata fields (explicitly defined for better performance, though dynamic is enabled)
+                schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=64)
+                schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535)
+
+                # Index params
+                index_params = client.prepare_index_params()
+                index_params.add_index(
+                    field_name="vector",
+                    index_type=self.index_type,
+                    metric_type=self.metric_type,
+                    params={"M": 16, "efConstruction": 256}
+                )
+
                 # Create collection
                 client.create_collection(
                     collection_name=name,
-                    dimension=self.dimension,
+                    schema=schema,
+                    index_params=index_params
                 )
 
-                logger.info(f"Created collection '{name}' with dimension {self.dimension}")
+                logger.info(f"Created collection '{name}' with dimension {self.dimension} and partition key 'kb_id'")
                 return True
             elif self.provider == "qdrant":
                 from qdrant_client.models import Distance, VectorParams
@@ -137,12 +168,14 @@ class VectorStore:
         self,
         chunks: List[Dict[str, Any]],
         collection_name: Optional[str] = None,
+        kb_id: str = "default"
     ) -> int:
         """Insert chunk embeddings into the store
 
         Args:
             chunks: List of chunk dicts with chunk_id, content, embedding, metadata
             collection_name: Name of collection
+            kb_id: Knowledge Base ID
 
         Returns:
             Number of chunks inserted
@@ -158,19 +191,23 @@ class VectorStore:
                 # Prepare data
                 data = []
                 for chunk in chunks:
+                    metadata = chunk.get("metadata", {})
+                    doc_id = metadata.get("doc_id", "")
+                    
                     data.append(
                         {
-                            "id": chunk.get("chunk_id", f"chunk_{chunk.get('index', 0)}"),
                             "vector": chunk["embedding"],
                             "text": chunk.get("content", ""),
-                            # Store metadata as JSON string
-                            "metadata": chunk.get("metadata", {}),
+                            "kb_id": kb_id,
+                            "doc_id": doc_id,
+                            "chunk_id": chunk.get("chunk_id", ""), # Stored in dynamic field
+                            "metadata": metadata, # Stored in dynamic field
                         }
                     )
 
                 # Insert
                 client.insert(collection_name=name, data=data)
-                logger.info(f"Inserted {len(data)} chunks into collection '{name}'")
+                logger.info(f"Inserted {len(data)} chunks into collection '{name}' (kb_id={kb_id})")
                 return len(data)
             elif self.provider == "qdrant":
                 from qdrant_client.models import PointStruct
@@ -192,7 +229,9 @@ class VectorStore:
                         payload={
                             "text": chunk.get("content", ""),
                             "metadata": chunk.get("metadata", {}),
-                            "chunk_id": chunk_id,  # Store original chunk_id in payload
+                            "chunk_id": chunk_id,
+                            "kb_id": kb_id, # Store kb_id in payload for filtering
+                            "doc_id": chunk.get("metadata", {}).get("doc_id", "")
                         },
                     )
                     points.append(point)
@@ -210,6 +249,7 @@ class VectorStore:
         query_embedding: List[float],
         top_k: int = 5,
         collection_name: Optional[str] = None,
+        kb_ids: Optional[List[str]] = None
     ) -> List[SearchResult]:
         """Search for similar chunks
 
@@ -217,6 +257,7 @@ class VectorStore:
             query_embedding: Query vector
             top_k: Number of results to return
             collection_name: Name of collection
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of search results
@@ -226,18 +267,29 @@ class VectorStore:
 
         try:
             if self.provider == "milvus":
+                # Construct filter expression for kb_ids
+                filter_expr = None
+                if kb_ids:
+                    # Milvus 'in' operator syntax: kb_id in ["id1", "id2"]
+                    ids_str = ", ".join([f'"{kid}"' for kid in kb_ids])
+                    filter_expr = f'kb_id in [{ids_str}]'
+
                 results = client.search(
                     collection_name=name,
                     data=[query_embedding],
                     limit=top_k,
-                    output_fields=["text", "metadata"],
+                    filter=filter_expr,
+                    output_fields=["text", "metadata", "chunk_id", "kb_id", "doc_id"],
                 )
 
                 search_results = []
                 for hit in results[0]:  # First query's results
+                    # Milvus returns entity fields in hit['entity'] or directly in hit depending on client version
+                    # PyMilvus High Level Client returns dict-like object
+                    
                     search_results.append(
                         SearchResult(
-                            chunk_id=hit.get("id", ""),
+                            chunk_id=hit.get("chunk_id", str(hit.get("id"))),
                             content=hit.get("text", ""),
                             score=hit.get("distance", 0.0),
                             metadata=hit.get("metadata"),
@@ -246,11 +298,32 @@ class VectorStore:
 
                 return search_results
             elif self.provider == "qdrant":
-                from qdrant_client.models import NearestQuery
+                from qdrant_client.models import NearestQuery, Filter, FieldCondition, MatchValue, MatchAny
+
+                query_filter = None
+                if kb_ids:
+                    if len(kb_ids) == 1:
+                        query_filter = Filter(
+                            must=[
+                                FieldCondition(
+                                    key="kb_id",
+                                    match=MatchValue(value=kb_ids[0])
+                                )
+                            ]
+                        )
+                    else:
+                        query_filter = Filter(
+                            must=[
+                                FieldCondition(
+                                    key="kb_id",
+                                    match=MatchAny(any=kb_ids)
+                                )
+                            ]
+                        )
 
                 results = client.query_points(
                     collection_name=name,
-                    query=NearestQuery(nearest=query_embedding),
+                    query=NearestQuery(nearest=query_embedding, filter=query_filter),
                     limit=top_k,
                 )
 
@@ -276,24 +349,41 @@ class VectorStore:
         collection_name: Optional[str] = None,
     ) -> int:
         """Delete chunks by IDs
-
-        Args:
-            chunk_ids: List of chunk IDs to delete
-            collection_name: Name of collection
-
-        Returns:
-            Number of chunks deleted
+        
+        Note: With auto_id=True in Milvus, we usually delete by expression or using the primary key (int64).
+        If chunk_ids are string UUIDs, we need to filter by chunk_id field.
         """
         client = self._get_client()
         name = collection_name or self.collection_name
 
         try:
             if self.provider == "milvus":
-                client.delete(collection_name=name, ids=chunk_ids)
-                logger.info(f"Deleted {len(chunk_ids)} chunks from collection '{name}'")
-                return len(chunk_ids)
+                # If we have the int64 PKs, we use delete(ids=[...])
+                # If we only have chunk_ids (strings), we use delete(filter="chunk_id in ...")
+                
+                # Assume chunk_ids are the string identifiers
+                ids_str = ", ".join([f'"{cid}"' for cid in chunk_ids])
+                filter_expr = f'chunk_id in [{ids_str}]'
+                
+                res = client.delete(collection_name=name, filter=filter_expr)
+                # res is usually a mutation result
+                logger.info(f"Deleted chunks matching filter from collection '{name}'")
+                return len(chunk_ids) # Approximate
             elif self.provider == "qdrant":
-                client.delete(collection_name=name, points_selector=chunk_ids)
+                # Qdrant delete by filter if chunk_ids are not point IDs
+                from qdrant_client.models import Filter, FieldCondition, MatchAny
+                
+                client.delete(
+                    collection_name=name,
+                    points_selector=Filter(
+                        must=[
+                            FieldCondition(
+                                key="chunk_id",
+                                match=MatchAny(any=chunk_ids)
+                            )
+                        ]
+                    )
+                )
                 logger.info(f"Deleted {len(chunk_ids)} chunks from collection '{name}'")
                 return len(chunk_ids)
         except Exception as e:
@@ -319,9 +409,7 @@ class VectorStore:
 
         try:
             if self.provider == "milvus":
-                # Assuming dynamic schema or JSON field for metadata
-                # Expression for JSON field query
-                filter_expr = f'metadata["doc_id"] == "{doc_id}"'
+                filter_expr = f'doc_id == "{doc_id}"'
                 client.delete(collection_name=name, filter=filter_expr)
                 logger.info(f"Deleted documents with doc_id '{doc_id}' from collection '{name}'")
                 return True
@@ -334,7 +422,7 @@ class VectorStore:
                         filter=Filter(
                             must=[
                                 FieldCondition(
-                                    key="metadata.doc_id",
+                                    key="doc_id", # We stored doc_id in payload top level for Qdrant too
                                     match=MatchValue(value=doc_id),
                                 )
                             ]
@@ -345,6 +433,51 @@ class VectorStore:
                 return True
         except Exception as e:
             logger.error(f"Failed to delete document {doc_id}: {e}")
+            return False
+            
+    def delete_by_kb_id(
+        self,
+        kb_id: str,
+        collection_name: Optional[str] = None,
+    ) -> bool:
+        """Delete all chunks belonging to a knowledge base
+
+        Args:
+            kb_id: Knowledge Base ID
+            collection_name: Name of collection
+
+        Returns:
+            True if successful
+        """
+        client = self._get_client()
+        name = collection_name or self.collection_name
+
+        try:
+            if self.provider == "milvus":
+                filter_expr = f'kb_id == "{kb_id}"'
+                client.delete(collection_name=name, filter=filter_expr)
+                logger.info(f"Deleted documents with kb_id '{kb_id}' from collection '{name}'")
+                return True
+            elif self.provider == "qdrant":
+                from qdrant_client.models import Filter, FieldCondition, MatchValue, FilterSelector
+
+                client.delete(
+                    collection_name=name,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="kb_id", 
+                                    match=MatchValue(value=kb_id),
+                                )
+                            ]
+                        )
+                    ),
+                )
+                logger.info(f"Deleted documents with kb_id '{kb_id}' from collection '{name}'")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete kb {kb_id}: {e}")
             return False
 
     def drop_collection(self, collection_name: Optional[str] = None) -> bool:

@@ -95,12 +95,13 @@ class BM25Index:
                     tokens.append(char.lower())
             return tokens
 
-    def search(self, query: str, top_k: int = 10) -> List[SearchResult]:
+    def search(self, query: str, top_k: int = 10, kb_ids: Optional[List[str]] = None) -> List[SearchResult]:
         """Search using BM25 scoring
 
         Args:
             query: Search query
             top_k: Number of results
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of search results with BM25 scores
@@ -118,6 +119,13 @@ class BM25Index:
             )
 
             for doc_id, term_freq in self.inverted_index[term].items():
+                # Filter by kb_ids if provided
+                if kb_ids:
+                    metadata = self.doc_metadata.get(doc_id, {})
+                    doc_kb_id = metadata.get("kb_id")
+                    if doc_kb_id and doc_kb_id not in kb_ids:
+                        continue
+                
                 # Get doc length
                 doc_length = self.doc_lengths_by_id.get(doc_id, self.avg_doc_length)
 
@@ -193,6 +201,7 @@ class Retriever:
         query: str,
         query_embedding: List[float],
         top_k: int = 5,
+        kb_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Retrieve relevant chunks using hybrid search
 
@@ -200,30 +209,33 @@ class Retriever:
             query: Query text
             query_embedding: Query vector
             top_k: Number of results to return
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of search results
         """
         if self.hybrid:
-            return await self._hybrid_retrieve(query, query_embedding, top_k)
+            return await self._hybrid_retrieve(query, query_embedding, top_k, kb_ids=kb_ids)
         else:
-            return await self._vector_retrieve(query_embedding, top_k)
+            return await self._vector_retrieve(query_embedding, top_k, kb_ids=kb_ids)
 
     async def _vector_retrieve(
         self,
         query_embedding: List[float],
         top_k: int,
+        kb_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Vector-only retrieval
 
         Args:
             query_embedding: Query vector
             top_k: Number of results
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of search results
         """
-        results = self.vector_store.search(query_embedding, top_k=top_k)
+        results = self.vector_store.search(query_embedding, top_k=top_k, kb_ids=kb_ids)
         return results
 
     async def _hybrid_retrieve(
@@ -231,6 +243,7 @@ class Retriever:
         query: str,
         query_embedding: List[float],
         top_k: int,
+        kb_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Hybrid retrieval combining vector and BM25
 
@@ -238,6 +251,7 @@ class Retriever:
             query: Query text
             query_embedding: Query vector
             top_k: Number of results
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of fused search results
@@ -246,10 +260,10 @@ class Retriever:
             self.hydrate_bm25()
 
         # Get vector results
-        vector_results = self.vector_store.search(query_embedding, top_k=self.vector_top_k)
+        vector_results = self.vector_store.search(query_embedding, top_k=self.vector_top_k, kb_ids=kb_ids)
 
         # Get BM25 results
-        bm25_results = self.bm25_index.search(query, top_k=self.bm25_top_k)
+        bm25_results = self.bm25_index.search(query, top_k=self.bm25_top_k, kb_ids=kb_ids)
 
         # Fusion
         if self.fusion_method == "rrf":

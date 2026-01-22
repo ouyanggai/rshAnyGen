@@ -4,6 +4,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from .state import AgentState
 from .nodes import (
+    entry_router,
     rag_checker,
     intent_classifier,
     skill_selector,
@@ -15,18 +16,9 @@ from .nodes import (
 
 def route_after_rag_check(state: AgentState) -> str:
     """RAG 检查后的路由决策
-
-    优先使用知识库：
-    - 有相关内容 -> rag_retriever（完整检索）
-    - 无相关内容 -> 检查是否启用搜索
-        - 启用搜索 -> intent_classifier
-        - 未启用搜索 -> llm_generator（直接对话）
-
-    Args:
-        state: 当前 Agent 状态
-
-    Returns:
-        下一个节点的名称
+    
+    Deprecated or used for implicit RAG?
+    For Multi-KB, we check kb_ids in intent or earlier.
     """
     if state.get("rag_has_relevant", False):
         return "rag_retriever"
@@ -44,6 +36,7 @@ def route_after_intent(state: AgentState) -> str:
     """意图识别后的路由决策
 
     根据分类的意图和搜索开关决定下一个节点：
+    - kb_ids (用户明确选择) -> rag_retriever
     - search + 启用搜索 -> skill_selector
     - search + 未启用搜索 -> llm_generator（跳过搜索）
     - knowledge -> rag_retriever
@@ -55,6 +48,11 @@ def route_after_intent(state: AgentState) -> str:
     Returns:
         下一个节点的名称
     """
+    kb_ids = state.get("kb_ids", [])
+    if kb_ids:
+        # 如果用户选择了知识库，优先查询知识库
+        return "rag_retriever"
+
     intent = state.get("intent", "chat")
     enable_search = state.get("enable_search", False)
 
@@ -65,7 +63,11 @@ def route_after_intent(state: AgentState) -> str:
             # 用户关闭了搜索，直接对话
             return "llm_generator"
     elif intent == "knowledge":
-        return "rag_retriever"
+        # 即使没有kb_ids，如果意图是knowledge，可能是默认知识库？
+        # 目前设计文档说 "未选择知识库时，系统使用纯聊天模式"
+        # 但如果意图检测器认为需要知识库（比如 "介绍一下项目"），可能需要 fallback 或提示
+        # 这里暂时保留原有逻辑，或者直接去 llm_generator
+        return "llm_generator" # 既然设计说未选择就是纯聊天
     else:
         # chat or unknown
         return "llm_generator"
@@ -82,15 +84,11 @@ def create_agent_graph():
     """创建 Agent 编排图
 
     构建完整的 LangGraph 工作流
-
-    新的流程：
-    1. rag_checker - 快速检查知识库
-    2. 如果有相关内容 -> rag_retriever
-    3. 如果无相关内容 -> intent_classifier -> skill_selector/tool_executor 或 llm_generator
     """
     workflow = StateGraph(AgentState)
 
     # 添加节点
+    workflow.add_node("entry_router", entry_router)
     workflow.add_node("rag_checker", rag_checker)
     workflow.add_node("intent_classifier", intent_classifier)
     workflow.add_node("skill_selector", skill_selector)
@@ -98,19 +96,20 @@ def create_agent_graph():
     workflow.add_node("rag_retriever", rag_retriever)
     workflow.add_node("llm_generator", llm_generator)
 
-    # 设置入口为 intent_classifier，优先进行意图识别，避免不必要的 RAG 查询
-    workflow.set_entry_point("intent_classifier")
+    workflow.set_entry_point("entry_router")
 
-    # RAG 检查后的条件边 (保留但暂时不作为入口)
-    def _route_after_rag_check(state: AgentState) -> str:
-        return route_after_rag_check(state)
+    def _route_after_entry(state: AgentState) -> str:
+        kb_ids = state.get("kb_ids", [])
+        if kb_ids:
+            return "rag_retriever"
+        return "intent_classifier"
 
     workflow.add_conditional_edges(
-        "rag_checker",
-        _route_after_rag_check,
+        "entry_router",
+        _route_after_entry,
         {
-            "rag_retriever": "rag_retriever",
             "intent_classifier": "intent_classifier",
+            "rag_retriever": "rag_retriever",
         },
     )
 
@@ -129,7 +128,6 @@ def create_agent_graph():
     )
 
     # 搜索分支：技能选择 -> 工具执行 -> LLM
-    # 这里可以添加审批逻辑，暂时直接连接
     workflow.add_edge("skill_selector", "tool_executor")
     workflow.add_edge("tool_executor", "llm_generator")
 

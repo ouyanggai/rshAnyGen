@@ -1,0 +1,81 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+
+        # Step 1: Get admin token via OIDC token endpoint
+        send "echo 'Step 1: Getting admin token...'\r"
+        expect "#"
+        send "ACCESS_TOKEN=\$(curl -s -X POST http://localhost:8080/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli' -d 'username=admin' -d 'password=admin_password' -d 'grant_type=password' | jq -r '.access_token')\r"
+        expect "#"
+        send "echo \"Token: \${ACCESS_TOKEN:0:50}...\"\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Step 2: Create realm
+        send "echo 'Step 2: Creating realm rshAnyGen...'\r"
+        expect "#"
+        send "curl -X POST http://localhost:8080/admin/realms -H 'Content-Type: application/json' -H \"Authorization: Bearer \${ACCESS_TOKEN}\" -d '{\"realm\":\"rshAnyGen\",\"enabled\":true}'\r"
+        expect "#"
+        send "sleep 3\r"
+        expect "#"
+
+        # Step 3: Verify realm
+        send "echo 'Step 3: Verifying realm...'\r"
+        expect "#"
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen -H \"Authorization: Bearer \${ACCESS_TOKEN}\" | jq '.realm'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Step 4: Create web-ui client
+        send "echo 'Step 4: Creating web-ui client...'\r"
+        expect "#"
+        send "curl -X POST http://localhost:8080/admin/realms/rshAnyGen/clients -H 'Content-Type: application/json' -H \"Authorization: Bearer \${ACCESS_TOKEN}\" -d '{\"clientId\":\"web-ui\",\"enabled\":true,\"publicClient\":true,\"redirectUris\":[\"http://localhost:9300/*\"],\"webOrigins\":[\"http://localhost:9300\"],\"standardFlowEnabled\":true}'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Step 5: Create backend-api client
+        send "echo 'Step 5: Creating backend-api client...'\r"
+        expect "#"
+        send "curl -X POST http://localhost:8080/admin/realms/rshAnyGen/clients -H 'Content-Type: application/json' -H \"Authorization: Bearer \${ACCESS_TOKEN}\" -d '{\"clientId\":\"backend-api\",\"enabled\":true,\"publicClient\":false,\"clientAuthenticatorType\":\"client-secret\",\"secret\":\"backend-secret-123456\",\"serviceAccountsEnabled\":true,\"authorizationServicesEnabled\":true,\"directAccessGrantsEnabled\":true}'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Step 6: List all clients
+        send "echo 'Step 6: Listing clients...'\r"
+        expect "#"
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen/clients -H \"Authorization: Bearer \${ACCESS_TOKEN}\" | jq -r '.[] | {clientId, publicClient}'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # Step 7: Get backend-api client secret
+        send "echo 'Step 7: Getting backend-api secret...'\r"
+        expect "#"
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen/clients/backend-api -H \"Authorization: Bearer \${ACCESS_TOKEN}\" | jq '.secret'\r"
+        expect "#"
+
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

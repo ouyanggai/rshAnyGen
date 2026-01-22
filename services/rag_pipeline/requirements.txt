@@ -1,5 +1,9 @@
 -r ../../requirements-shared.txt
 
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
 # RAG Pipeline Specific
 langchain-openai>=0.0.2
 jieba>=0.42.1

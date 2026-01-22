@@ -1,0 +1,36 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+
+        # Decode and create the script
+        send "echo 'IyEvYmluL2Jhc2gKCiMgS2V5Y2xvYWsgQWRtaW4gQVBJIFNldHVwIFNjcmlwdAojIFJ1biB0aGlzIG9uIHRoZSBLZXljbG9hayBzZXJ2ZXIKCnNldCAtZQoKS0VZQ0xPQUtfVVJMPSJodHRwOi8vbG9jYWxob3N0OjgwODAiCkFETUlOX1VTRVI9ImFkbWluIgpBRE1JTl9QQVNTV09SRD0iYWRtaW5fcGFzc3dvcmQiClJFQUxNPSJyc2hBbnlHZW4iCgplY2hvICI9PT0gU3RlcCAxOiBHZXR0aW5nIGFkbWluIHRva2VuID09PSIKQUNDRVNTX1RPS0VOPSQoY3VybCAtcyAtWCBQT1NUICIke0tFWUNMT0FLX1VSTH0vcmVhbG1zL21hc3Rlci9wcm90b2NvbC9vcGVuaWQtY29ubmVjdC90b2tlbiIgXAogIC1kICJjbGllbnRfaWQ9YWRtaW4tY2xpIiBcCiAgLWQgInVzZXJuYW1lPSR7QURNSU5fVVNFUn0iIFwKICAtZCAicGFzc3dvcmQ9JHtBRE1JTl9QQVNTV09SRH0iIFwKICAtZCAiZ3JhbnRfdHlwZT1wYXNzd29yZCIgfCBqcSAtciAnLmFjY2Vzc190b2tlbicpCgplY2hvICJUb2tlbiBvYnRhaW5lZDogJHtBQ0NFU1NfVE9LRU46MDo1MH0uLi4iCmVjaG8gIiIKCmVjaG8gIj09PSBTdGVwIDI6IENyZWF0aW5nIHdlYi11aSBjbGllbnQgPT09IgpjdXJsIC1zIC1YIFBPU1QgIiR7S0VZQ0xPQUtfVVJMfS9hZG1pbi9yZWFsbXMvJHtSRUFMTX0vY2xpZW50cyIgXAogIC1IICdDb250ZW50LVR5cGU6IGFwcGxpY2F0aW9uL2pzb24nIFwKICAtSCAiQXV0aG9yaXphdGlvbjogQmVhcmVyICR7QUNDRVNTX1RPS0VOfSIgXAogIC1kICd7CiAgICAiY2xpZW50SWQiOiAid2ViLXVpIiwKICAgICJlbmFibGVkIjogdHJ1ZSwKICAgICJwdWJsaWNDbGllbnQiOiB0cnVlLAogICAgInJlZGlyZWN0VXJpcyI6IFsiaHR0cDovL2xvY2FsaG9zdDo5MzAwLyoiXSwKICAgICJ3ZWJPcmlnaW5zIjogWyJodHRwOi8vbG9jYWxob3N0OjkzMDAiXSwKICAgICJzdGFuZGFyZEZsb3dFbmFibGVkIjogdHJ1ZQogIH0nCmVjaG8gIiIKZWNobyAid2ViLXVpIGNsaWVudCBjcmVhdGVkIgpzbGVlcCAyCmVjaG8gIiIKCmVjaG8gIj09PSBTdGVwIDM6IENyZWF0aW5nIGJhY2tlbmQtYXBpIGNsaWVudCA9PT0iCmN1cmwgLXMgLVggUE9TVCAiJHtLRVlDTE9BS19VUkx9L2FkbWluL3JlYWxtcy8ke1JFQUxNfS9jbGllbnRzIiBcCiAgLUggJ0NvbnRlbnQtVHlwZTogYXBwbGljYXRpb24vanNvbicgXAogIC1IICJBdXRob3JpemF0aW9uOiBCZWFyZXIgJHtBQ0NFU1NfVE9LRU59IiBcCiAgLWQgJ3sKICAgICJjbGllbnRJZCI6ICJiYWNrZW5kLWFwaSIsCiAgICAiZW5hYmxlZCI6IHRydWUsCiAgICAicHVibGljQ2xpZW50IjogZmFsc2UsCiAgICAiY2xpZW50QXV0aGVudGljYXRvclR5cGUiOiAiY2xpZW50LXNlY3JldCIsCiAgICAic2VjcmV0IjogImJhY2tlbmQtc2VjcmV0LTEyMzQ1NiIsCiAgICAic2VydmljZUFjY291bnRzRW5hYmxlZCI6IHRydWUsCiAgICAiYXV0aG9yaXphdGlvblNlcnZpY2VzRW5hYmxlZCI6IHRydWUsCiAgICAiZGlyZWN0QWNjZXNzR3JhbnRzRW5hYmxlZCI6IHRydWUKICB9JwplY2hvICIiCmVjaG8gImJhY2tlbmQtYXBpIGNsaWVudCBjcmVhdGVkIgpzbGVlcCAyCmVjaG8gIiIKCmVjaG8gIj09PSBTdGVwIDQ6IExpc3RpbmcgYWxsIGNsaWVudHMgPT09IgpjdXJsIC1zICIke0tFWUNMT0FLX1VSTH0vYWRtaW4vcmVhbG1zLyR7UkVBTE19L2NsaWVudHMiIFwKICAtSCAiQXV0aG9yaXphdGlvbjogQmVhcmVyICR7QUNDRVNTX1RPS0VOfSIgfCBqcSAtciAnLltdIHwge2NsaWVudElkLCBwdWJsaWNDbGllbnR9JwplY2hvICIiCgplY2hvICI9PT0gU3RlcCA1OiBHZXR0aW5nIGJhY2tlbmQtYXBpIGNsaWVudCBzZWNyZXQgPT09IgpjdXJsIC1zICIke0tFWUNMT0FLX1VSTH0vYWRtaW4vcmVhbG1zLyR7UkVBTE19L2NsaWVudHMvYmFja2VuZC1hcGkiIFwKICAtSCAiQXV0aG9yaXphdGlvbjogQmVhcmVyICR7QUNDRVNTX1RPS0VOfSIgfCBqcSAnLnNlY3JldCcKZWNobyAiIgoKZWNobyAiPT09IFNldHVwIGNvbXBsZXRlID09PSIK' | base64 -d > setup_clients.sh\r"
+        expect "#"
+        send "chmod +x setup_clients.sh\r"
+        expect "#"
+        send "./setup_clients.sh\r"
+        expect "#"
+        send "sleep 5\r"
+        expect "#"
+        send "rm setup_clients.sh\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

@@ -15,6 +15,7 @@ class AgentState(MessagesState):
     user_message: str
     llm_config: Optional[dict] = None  # 包含 api_key, base_url 等
     enable_search: bool = False  # 是否启用联网搜索
+    kb_ids: List[str]
     # chat_history 由 MessagesState 提供
 
     # 中间状态

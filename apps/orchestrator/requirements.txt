@@ -9,3 +9,7 @@ langchain-openai>=0.0.2
 dashscope>=1.14.0
 zhipuai>=1.0.0
 openai>=1.10.0
+
+# Session & Context
+redis>=5.0.0
+tiktoken>=0.5.0

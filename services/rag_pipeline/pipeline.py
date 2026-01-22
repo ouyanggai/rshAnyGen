@@ -42,7 +42,7 @@ class RAGPipeline:
 
         # Get collection name
         vector_db_config = self.config.get("vector_db", self.config)
-        self.collection_name = vector_db_config.get("collection", "knowledge_base")
+        self.collection_name = vector_db_config.get("collection", "knowledge_bases")
 
         # Initialize collection
         self._initialize_collection()
@@ -59,12 +59,14 @@ class RAGPipeline:
         self,
         file_path: str,
         metadata: Optional[Dict[str, Any]] = None,
+        kb_id: str = "default",
     ) -> Dict[str, Any]:
         """Ingest a single document
 
         Args:
             file_path: Path to the document
             metadata: Optional metadata to attach
+            kb_id: Knowledge Base ID
 
         Returns:
             Dictionary with ingestion results
@@ -76,6 +78,7 @@ class RAGPipeline:
 
             # Prepare metadata
             doc_metadata = {**(metadata or {}), **doc.get("metadata", {})}
+            doc_metadata["kb_id"] = kb_id # Add kb_id to metadata for BM25/Storage
 
             # Split into chunks
             chunks = self.chunker.chunk(doc["content"], doc_metadata)
@@ -94,7 +97,7 @@ class RAGPipeline:
             logger.info(f"Generated {len(embedded_chunks)} embeddings")
 
             # Insert into vector store
-            inserted = self.vector_store.insert(embedded_chunks, self.collection_name)
+            inserted = self.vector_store.insert(embedded_chunks, self.collection_name, kb_id=kb_id)
 
             # Index for BM25
             self.retriever.index_documents(embedded_chunks)
@@ -119,12 +122,14 @@ class RAGPipeline:
         self,
         file_paths: List[str],
         metadata: Optional[Dict[str, Any]] = None,
+        kb_id: str = "default",
     ) -> List[Dict[str, Any]]:
         """Ingest multiple documents
 
         Args:
             file_paths: List of file paths
             metadata: Optional metadata to attach to all documents
+            kb_id: Knowledge Base ID
 
         Returns:
             List of ingestion results
@@ -132,7 +137,7 @@ class RAGPipeline:
         results = []
 
         for file_path in file_paths:
-            result = await self.ingest_document(file_path, metadata)
+            result = await self.ingest_document(file_path, metadata, kb_id=kb_id)
             results.append(result)
 
         # Summary
@@ -141,7 +146,7 @@ class RAGPipeline:
 
         logger.info(
             f"Ingested {successful}/{len(file_paths)} documents, "
-            f"{total_chunks} total chunks"
+            f"{total_chunks} total chunks into kb_id={kb_id}"
         )
 
         return results
@@ -151,6 +156,7 @@ class RAGPipeline:
         text: str,
         doc_id: str,
         metadata: Optional[Dict[str, Any]] = None,
+        kb_id: str = "default",
     ) -> Dict[str, Any]:
         """Ingest raw text
 
@@ -158,13 +164,18 @@ class RAGPipeline:
             text: Text content
             doc_id: Document ID
             metadata: Optional metadata
+            kb_id: Knowledge Base ID
 
         Returns:
             Ingestion result
         """
         try:
+            # Prepare metadata
+            doc_metadata = metadata or {}
+            doc_metadata["kb_id"] = kb_id
+
             # Split into chunks
-            chunks = self.chunker.chunk(text, metadata)
+            chunks = self.chunker.chunk(text, doc_metadata)
             logger.info(f"Created {len(chunks)} chunks from text")
 
             if not chunks:
@@ -178,7 +189,7 @@ class RAGPipeline:
             embedded_chunks = await self.embedder.embed_chunks(chunks)
 
             # Insert into vector store
-            inserted = self.vector_store.insert(embedded_chunks, self.collection_name)
+            inserted = self.vector_store.insert(embedded_chunks, self.collection_name, kb_id=kb_id)
 
             # Index for BM25
             self.retriever.index_documents(embedded_chunks)
@@ -203,6 +214,7 @@ class RAGPipeline:
         query: str,
         top_k: int = 5,
         rerank: bool = False,
+        kb_ids: Optional[List[str]] = None,
     ) -> List[SearchResult]:
         """Search for relevant documents
 
@@ -210,6 +222,7 @@ class RAGPipeline:
             query: Search query
             top_k: Number of results to return
             rerank: Whether to apply reranking
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             List of search results
@@ -220,7 +233,7 @@ class RAGPipeline:
 
             # Retrieve using hybrid search (get more for reranking)
             retrieve_k = top_k * 4 if rerank else top_k
-            results = await self.retriever.retrieve(query, query_embedding, retrieve_k)
+            results = await self.retriever.retrieve(query, query_embedding, retrieve_k, kb_ids=kb_ids)
 
             # Apply reranking if requested
             if rerank:
@@ -237,6 +250,7 @@ class RAGPipeline:
         directory: str,
         pattern: str = "**/*",
         metadata: Optional[Dict[str, Any]] = None,
+        kb_id: str = "default",
     ) -> List[Dict[str, Any]]:
         """Ingest all documents from a directory
 
@@ -244,6 +258,7 @@ class RAGPipeline:
             directory: Directory path
             pattern: Glob pattern for files
             metadata: Optional metadata
+            kb_id: Knowledge Base ID
 
         Returns:
             List of ingestion results
@@ -262,7 +277,7 @@ class RAGPipeline:
 
         # Ingest all files
         file_paths = [str(f) for f in files]
-        return await self.ingest_documents(file_paths, metadata)
+        return await self.ingest_documents(file_paths, metadata, kb_id=kb_id)
 
     def delete_documents(self, chunk_ids: List[str]) -> int:
         """Delete documents by chunk IDs
@@ -307,6 +322,7 @@ class RAGPipeline:
         question: str,
         top_k: int = 5,
         context_template: str = "Context: {context}\n\nQuestion: {question}",
+        kb_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Query with context retrieval
 
@@ -314,12 +330,13 @@ class RAGPipeline:
             question: Question to answer
             top_k: Number of context chunks to retrieve
             context_template: Template for formatting context
+            kb_ids: List of Knowledge Base IDs to filter by
 
         Returns:
             Dictionary with context and results
         """
         # Search for relevant context
-        results = await self.search(question, top_k=top_k)
+        results = await self.search(question, top_k=top_k, kb_ids=kb_ids)
 
         # Format context
         context_chunks = [r.content for r in results if r.content]

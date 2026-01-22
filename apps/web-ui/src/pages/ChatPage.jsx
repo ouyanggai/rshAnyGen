@@ -4,7 +4,6 @@ import remarkGfm from 'remark-gfm';
 import { useChatStream } from '../hooks/useChatStream';
 import { useSkills } from '../hooks/useSkills';
 import {
-  SparklesIcon,
   UserIcon,
   PaperAirplaneIcon,
   GlobeAltIcon,
@@ -12,6 +11,7 @@ import {
   CheckIcon,
 } from '@heroicons/react/24/outline';
 import ThinkingIndicator from '../components/chat/ThinkingIndicator';
+import KbSelector from '../components/chat/KbSelector';
 import logo from '../assets/logo.png';
 
 export default function ChatPage() {
@@ -20,6 +20,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [thinkingContent, setThinkingContent] = useState(''); // 新增：实时思考内容
   const [enableSearch, setEnableSearch] = useState(false);
+  const [selectedKbs, setSelectedKbs] = useState([]); // 新增：选中的知识库
   const [copiedId, setCopiedId] = useState(null); // 新增：复制状态
   const { send } = useChatStream();
   const { enabledSkills } = useSkills();
@@ -101,7 +102,7 @@ export default function ChatPage() {
     }
     
     setIsLoading(true);
-    setThinkingContent('正在思考...');
+    setThinkingContent('思考中...');
 
     let accumulatedContent = '';
     let aiMsgId = null;
@@ -111,6 +112,7 @@ export default function ChatPage() {
     try {
       await send(message, {
         enableSearch: enableSearch,
+        kbIds: selectedKbs.map(kb => kb.kb_id), // 传递选中的知识库ID
         onThinking: (content) => {
           if (!hasStartedRef.current) {
             setThinkingContent(content);
@@ -193,7 +195,7 @@ export default function ChatPage() {
       setIsLoading(false);
       setThinkingContent('');
     }
-  }, [inputValue, isLoading, send, enableSearch]);
+  }, [inputValue, isLoading, send, enableSearch, selectedKbs]);
 
   // 处理回车发送
   const handleKeyDown = (e) => {
@@ -307,6 +309,10 @@ export default function ChatPage() {
       {/* 输入区域 */}
       <div className="p-4 md:p-6 bg-transparent">
         <div className="max-w-3xl mx-auto">
+          
+          {/* 知识库选择器 */}
+          <KbSelector selectedKbs={selectedKbs} onChange={setSelectedKbs} />
+
           <div className="relative flex items-end gap-2 p-2 bg-white dark:bg-bg-card-dark rounded-[24px] shadow-elevation-2 border border-border dark:border-border-dark transition-colors duration-200">
             {/* 联网搜索按钮 (悬浮样式) */}
             <button

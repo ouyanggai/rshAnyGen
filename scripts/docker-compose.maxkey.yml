@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: maxkey-db
+    environment:
+      MYSQL_ROOT_PASSWORD: maxkey_root_password
+      MYSQL_DATABASE: maxkey
+      MYSQL_USER: maxkey
+      MYSQL_PASSWORD: maxkey_password
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    volumes:
+      - maxkey-db:/var/lib/mysql
+      - ./maxkey/init:/docker-entrypoint-initdb.d
+    networks:
+      - maxkey-net
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  maxkey:
+    image: maxkeytop/maxkey:3.3.0
+    container_name: maxkey
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: maxkey
+      MYSQL_USER: maxkey
+      MYSQL_PASSWORD: maxkey_password
+      SERVER_PORT: 9527
+      TZ: Asia/Shanghai
+    ports:
+      - "9527:9527"
+    depends_on:
+      - mysql
+    networks:
+      - maxkey-net
+    restart: unless-stopped
+    volumes:
+      - maxkey-logs:/logs
+      - maxkey-upload:/upload
+
+networks:
+  maxkey-net:
+    driver: bridge
+
+volumes:
+  maxkey-db:
+  maxkey-logs:
+  maxkey-upload:

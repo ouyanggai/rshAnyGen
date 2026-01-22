@@ -30,16 +30,22 @@ gateway:
 # 外部依赖端口
 dependencies:
   redis:
-    host: "localhost"
+    host: "192.168.1.248"
     port: 6379
     db: 0
     ttl: 3600
   milvus:
-    host: "localhost"
+    host: "192.168.1.248"
     port: 19530
   qdrant:
     host: "localhost"
     port: 6333
+  keycloak:
+    url: "http://192.168.1.248:8080"
+    realm: "rshAnyGen"
+    frontend_client_id: "web-ui"
+    backend_client_id: "backend-api"
+    backend_client_secret: "backend-secret-123456"
 
 # LLM 默认配置
 llm:
@@ -52,9 +58,9 @@ llm:
 # 向量数据库默认配置
 vector_db:
   provider: "milvus"
-  host: "localhost"
+  host: "192.168.1.248"
   port: 19530
-  collection: "knowledge_base"
+  collection: "knowledge_bases"
   dimension: 1024
   index_type: "HNSW"
   metric_type: "COSINE"
@@ -71,3 +77,20 @@ reranker:
   provider: "qwen"
   model: "rerank-v2"
   top_n: 5
+
+# 上下文管理配置
+context:
+  working_memory:
+    max_tokens: 2048
+    min_turns: 3
+    max_turns: 10
+
+  short_term_summary:
+    trigger_tokens: 8192
+    max_summary_tokens: 512
+    topic_change_threshold: 0.7
+
+  long_term_memory:
+    retrieval_top_k: 3
+    min_importance: 0.6
+    max_age_days: 90

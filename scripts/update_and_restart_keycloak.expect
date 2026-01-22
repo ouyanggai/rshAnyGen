@@ -1,0 +1,110 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+# 读取 docker-compose 文件内容
+set fp [open "/Volumes/oygsky/AIstudy/rshAnyGen/docker-compose.keycloak.yml" r]
+set file_data [read $fp]
+close $fp
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+
+        # 备份旧配置
+        send "cp docker-compose.keycloak.yml docker-compose.keycloak.yml.bak\r"
+        expect "#"
+
+        # 写入新配置文件
+        send "cat > docker-compose.keycloak.yml << 'DOCKER_COMPOSE_EOF'\r"
+        expect "#"
+
+        # 逐行发送文件内容
+        foreach line [split $file_data "\n"] {
+            # 转义特殊字符
+            regsub -all {\\} $line {\\\\} line
+            regsub -all {"} $line {\"} line
+            regsub -all {\$} $line {\\$} line
+            send "$line\r"
+            # 小延迟确保命令被正确接收
+            after 50
+        }
+
+        send "DOCKER_COMPOSE_EOF\r"
+        expect "#"
+        send "sleep 1\r"
+        expect "#"
+
+        # 验证文件内容
+        send "echo '=== Verifying new config ==='\r"
+        expect "#"
+        send "cat docker-compose.keycloak.yml\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 停止并删除现有容器
+        send "echo '=== Stopping existing containers ==='\r"
+        expect "#"
+        send "docker-compose -f docker-compose.keycloak.yml down\r"
+        expect "#"
+        send "sleep 5\r"
+        expect "#"
+
+        # 启动新容器
+        send "echo '=== Starting containers with new config ==='\r"
+        expect "#"
+        send "docker-compose -f docker-compose.keycloak.yml up -d\r"
+        expect "#"
+        send "sleep 5\r"
+        expect "#"
+
+        # 等待 Keycloak 启动
+        send "echo '=== Waiting for Keycloak to start (40s) ==='\r"
+        expect "#"
+        send "sleep 40\r"
+        expect "#"
+
+        # 检查状态
+        send "echo '=== Container Status ==='\r"
+        expect "#"
+        send "docker ps | grep keycloak\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 检查日志
+        send "echo '=== Keycloak Logs ==='\r"
+        expect "#"
+        send "docker logs keycloak --tail 25\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 测试 realm 端点
+        send "echo '=== Testing Endpoints ==='\r"
+        expect "#"
+        send "curl -s http://localhost:8080/realms/master | jq -r '.realm'\r"
+        expect "#"
+        send "sleep 1\r"
+        expect "#"
+        send "curl -s http://localhost:8080/realms/rshAnyGen | jq -r '.realm'\r"
+        expect "#"
+
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

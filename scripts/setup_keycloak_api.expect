@@ -1,0 +1,62 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+
+        # 获取 admin token
+        send "TOKEN=\$(docker exec keycloak /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password admin_password --no-config --output | jq -r '.token')\r"
+        expect "#"
+        send "echo \"Using token: \${TOKEN:0:50}...\"\r"
+        expect "#"
+
+        # 创建 realm
+        send "curl -X POST http://localhost:8080/admin/realms -H 'Content-Type: application/json' -H \"Authorization: Bearer \${TOKEN}\" -d '{\"realm\":\"rshAnyGen\",\"enabled\":true}'\r"
+        expect "#"
+        send "sleep 3\r"
+        expect "#"
+
+        # 验证 realm 创建成功
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen -H \"Authorization: Bearer \${TOKEN}\" | jq '.realm'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 创建 web-ui client
+        send "curl -X POST http://localhost:8080/admin/realms/rshAnyGen/clients -H 'Content-Type: application/json' -H \"Authorization: Bearer \${TOKEN}\" -d '{\"clientId\":\"web-ui\",\"enabled\":true,\"publicClient\":true,\"redirectUris\":[\"http://localhost:9300/*\"],\"webOrigins\":[\"http://localhost:9300\"],\"standardFlowEnabled\":true}'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 创建 backend-api client
+        send "curl -X POST http://localhost:8080/admin/realms/rshAnyGen/clients -H 'Content-Type: application/json' -H \"Authorization: Bearer \${TOKEN}\" -d '{\"clientId\":\"backend-api\",\"enabled\":true,\"publicClient\":false,\"clientAuthenticatorType\":\"client-secret\",\"secret\":\"backend-secret-123456\",\"serviceAccountsEnabled\":true,\"authorizationServicesEnabled\":true,\"directAccessGrantsEnabled\":true}'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 列出 clients 验证
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen/clients -H \"Authorization: Bearer \${TOKEN}\" | jq -r '.[] | {clientId, publicClient}'\r"
+        expect "#"
+
+        # 获取 backend-api 的完整信息（包括 secret）
+        send "curl -s http://localhost:8080/admin/realms/rshAnyGen/clients/backend-api -H \"Authorization: Bearer \${TOKEN}\" | jq '.'\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

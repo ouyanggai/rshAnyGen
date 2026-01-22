@@ -72,6 +72,23 @@ def _build_prompt(state: AgentState) -> str:
     user_message = state["user_message"]
     retrieved_docs = state.get("retrieved_docs", [])
     tool_results = state.get("tool_results")
+    messages = state.get("messages") or []
+
+    history_lines = []
+    for m in messages:
+        if isinstance(m, dict):
+            role = m.get("role")
+            content = m.get("content")
+        else:
+            role = getattr(m, "role", None)
+            content = getattr(m, "content", None)
+        if not role or not content:
+            continue
+        history_lines.append(f"{role}: {content}")
+
+    if history_lines and history_lines[-1] == f"user: {user_message}":
+        history_lines = history_lines[:-1]
+    history_text = "\n".join(history_lines[-40:]) if history_lines else ""
 
     # 有知识库内容的情况（严谨模式）
     if retrieved_docs:
@@ -87,6 +104,9 @@ def _build_prompt(state: AgentState) -> str:
         ])
 
         return f"""你是一个专业、乐于助人的 AI 助手。请基于以下知识库内容回答用户问题。
+
+=== 对话上下文 ===
+{history_text if history_text else "（无）"}
 
 === 知识库内容 ===
 {docs_text}
@@ -106,6 +126,9 @@ def _build_prompt(state: AgentState) -> str:
     # 无知识库内容的情况（通用闲聊）
     elif intent == "search" and tool_results:
         return f"""你是一个智能助手。基于以下搜索结果回答用户问题。
+=== 对话上下文 ===
+{history_text if history_text else "（无）"}
+
 === 搜索结果 ===
 {tool_results}
 === 用户问题 ===
@@ -121,6 +144,9 @@ def _build_prompt(state: AgentState) -> str:
 
     else:
         return f"""你是一个专业、严谨的 AI 助手。
+
+=== 对话上下文 ===
+{history_text if history_text else "（无）"}
     
 === 用户问题 ===
 {user_message}

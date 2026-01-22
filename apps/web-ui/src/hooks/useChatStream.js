@@ -13,6 +13,7 @@ export function useChatStream() {
     try {
       await streamChat(message, {
         enableSearch: options.enableSearch || false,
+        kbIds: options.kbIds || [],
         onThinking: options.onThinking,
         onChunk: options.onChunk,
         onDone: options.onDone,
@@ -24,7 +25,7 @@ export function useChatStream() {
     } catch (err) {
       const errorMsg = err.message || '发送消息失败';
       setError(errorMsg);
-      callbacks.onError?.(errorMsg);
+      options.onError?.(errorMsg);
     } finally {
       setIsLoading(false);
     }

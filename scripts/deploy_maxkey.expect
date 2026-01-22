@@ -1,0 +1,219 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "mkdir -p /root/maxkey\r"
+        expect "#"
+        send "cd /root/maxkey\r"
+        expect "#"
+
+        # 创建 docker-compose.yml
+        send "cat > docker-compose.maxkey.yml << 'EOF'\r"
+        expect "#"
+
+        send "version: \\\"3.8\\\"\r"
+        expect "#"
+
+        send "services:\r"
+        expect "#"
+
+        send "  mysql:\r"
+        expect "#"
+
+        send "    image: mysql:8.0\r"
+        expect "#"
+
+        send "    container_name: maxkey-db\r"
+        expect "#"
+
+        send "    environment:\r"
+        expect "#"
+
+        send "      MYSQL_ROOT_PASSWORD: maxkey_root_password\r"
+        expect "#"
+
+        send "      MYSQL_DATABASE: maxkey\r"
+        expect "#"
+
+        send "      MYSQL_USER: maxkey\r"
+        expect "#"
+
+        send "      MYSQL_PASSWORD: maxkey_password\r"
+        expect "#"
+
+        send "      TZ: Asia/Shanghai\r"
+        expect "#"
+
+        send "    ports:\r"
+        expect "#"
+
+        send "      - \\\"3307:3306\\\"\r"
+        expect "#"
+
+        send "    volumes:\r"
+        expect "#"
+
+        send "      - maxkey-db:/var/lib/mysql\r"
+        expect "#"
+
+        send "    networks:\r"
+        expect "#"
+
+        send "      - maxkey-net\r"
+        expect "#"
+
+        send "    restart: unless-stopped\r"
+        expect "#"
+
+        send "  maxkey:\r"
+        expect "#"
+
+        send "    image: maxkeytop/maxkey:latest\r"
+        expect "#"
+
+        send "    container_name: maxkey\r"
+        expect "#"
+
+        send "    environment:\r"
+        expect "#"
+
+        send "      MYSQL_HOST: mysql\r"
+        expect "#"
+
+        send "      MYSQL_PORT: 3306\r"
+        expect "#"
+
+        send "      MYSQL_DATABASE: maxkey\r"
+        expect "#"
+
+        send "      MYSQL_USER: maxkey\r"
+        expect "#"
+
+        send "      MYSQL_PASSWORD: maxkey_password\r"
+        expect "#"
+
+        send "      SERVER_PORT: 9527\r"
+        expect "#"
+
+        send "      TZ: Asia/Shanghai\r"
+        expect "#"
+
+        send "    ports:\r"
+        expect "#"
+
+        send "      - \\\"9527:9527\\\"\r"
+        expect "#"
+
+        send "    depends_on:\r"
+        expect "#"
+
+        send "      - mysql\r"
+        expect "#"
+
+        send "    networks:\r"
+        expect "#"
+
+        send "      - maxkey-net\r"
+        expect "#"
+
+        send "    restart: unless-stopped\r"
+        expect "#"
+
+        send "networks:\r"
+        expect "#"
+
+        send "  maxkey-net:\r"
+        expect "#"
+
+        send "    driver: bridge\r"
+        expect "#"
+
+        send "volumes:\r"
+        expect "#"
+
+        send "  maxkey-db:\r"
+        expect "#"
+
+        send "EOF\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 验证文件
+        send "echo '=== MaxKey Config File ==='\r"
+        expect "#"
+        send "cat docker-compose.maxkey.yml\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 检查端口是否被占用
+        send "echo '=== Checking Ports ==='\r"
+        expect "#"
+        send "netstat -tuln | grep -E '3307|9527'\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 启动容器
+        send "echo '=== Starting MaxKey containers ==='\r"
+        expect "#"
+        send "docker-compose -f docker-compose.maxkey.yml up -d\r"
+        expect "#"
+        send "sleep 15\r"
+        expect "#"
+
+        # 检查容器状态
+        send "echo '=== Container Status ==='\r"
+        expect "#"
+        send "docker ps | grep maxkey\r"
+        expect "#"
+        send "sleep 3\r"
+        expect "#"
+
+        # 等待 MySQL 启动
+        send "echo '=== Waiting for MySQL (30s) ==='\r"
+        expect "#"
+        send "sleep 30\r"
+        expect "#"
+
+        # 检查 MaxKey 日志
+        send "echo '=== MaxKey Logs ==='\r"
+        expect "#"
+        send "docker logs maxkey --tail 30\r"
+        expect "#"
+        send "sleep 3\r"
+        expect "#"
+
+        # 测试端点
+        send "echo '=== Testing Endpoints ==='\r"
+        expect "#"
+        send "curl -s http://localhost:9527 | head -20\r"
+        expect "#"
+        send "sleep 2\r"
+        expect "#"
+
+        # 检查 MySQL 连接
+        send "echo '=== Testing MySQL Connection ==='\r"
+        expect "#"
+        send "docker exec maxkey-db mysql -umaxkey -pmaxkey_password -e 'SELECT 1'\r"
+        expect "#"
+
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

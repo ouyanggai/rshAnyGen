@@ -70,6 +70,7 @@ class ChatRequest(BaseModel):
     chat_history: Optional[List[Dict[str, str]]] = None
     llm_config: Optional[Dict[str, str]] = None  # e.g. {"api_key": "...", "base_url": "..."}
     enable_search: bool = False  # 是否启用联网搜索
+    kb_ids: Optional[List[str]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -110,6 +111,7 @@ async def chat(request: ChatRequest):
                 "metadata": {},
                 "llm_config": request.llm_config,
                 "enable_search": request.enable_search,
+                "kb_ids": request.kb_ids or [],
             }
 
             node_thinking = {

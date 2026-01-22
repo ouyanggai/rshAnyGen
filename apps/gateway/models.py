@@ -7,6 +7,9 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
     stream: bool = True
+    enable_search: bool = False
+    kb_ids: Optional[List[str]] = None
+    model: Optional[str] = None  # LLM 模型名称
 
 class ChatResponse(BaseModel):
     """聊天响应"""

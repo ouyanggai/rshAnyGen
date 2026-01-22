@@ -5,13 +5,14 @@ from apps.orchestrator.services.rag_pipeline import RAGPipelineClient
 async def rag_retriever(state: AgentState):
     """Retrieve knowledge from RAG pipeline"""
     query = state.get("user_message")
+    kb_ids = state.get("kb_ids", [])
     
     if not query:
         return {"retrieved_docs": []}
 
     client = RAGPipelineClient()
     try:
-        results = await client.search(query)
+        results = await client.search(query, kb_ids=kb_ids)
         
         # Format for context
         docs = []
@@ -19,7 +20,8 @@ async def rag_retriever(state: AgentState):
             docs.append({
                 "content": res.get("content"),
                 "source": res.get("chunk_id"), # or metadata
-                "score": res.get("score")
+                "score": res.get("score"),
+                "metadata": res.get("metadata")
             })
             
         return {

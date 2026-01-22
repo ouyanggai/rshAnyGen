@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getAccessToken } from '../auth/authStore';
 
 // API 基础配置
 const api = axios.create({
@@ -12,7 +13,11 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
-    // 可以在这里添加认证 token
+    const token = getAccessToken();
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {

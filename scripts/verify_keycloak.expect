@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+set timeout 30
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "curl -s http://localhost:8080/realms/master/.well-known/openid-configuration\r"
+        expect "#"
+        send "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/realms/master\r"
+        expect "#"
+        send "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/admin/master/console/\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

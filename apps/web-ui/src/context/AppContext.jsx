@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useKeycloak } from '@react-keycloak/web';
 import { storage } from '../utils/storage';
 
 const AppContext = createContext();
@@ -12,6 +13,7 @@ export const useApp = () => {
 };
 
 export function AppProvider({ children }) {
+  const { keycloak, initialized } = useKeycloak();
   // 用户信息
   const [user, setUser] = useState(null);
 
@@ -76,28 +78,27 @@ export function AppProvider({ children }) {
     storage.set('sidebarCollapsed', sidebarCollapsed);
   }, [sidebarCollapsed]);
 
-  // 初始化用户信息
   useEffect(() => {
-    const initUser = () => {
-      // 从 localStorage 获取用户信息
-      const savedUser = storage.get('user');
-      if (savedUser) {
-        setUser(savedUser);
-      } else {
-        // 默认用户（可以后续接入真实认证）
-        const defaultUser = {
-          id: 'user-1',
-          name: '用户',
-          isAdmin: true, // 默认为管理员，方便开发
-          avatar: null,
-        };
-        setUser(defaultUser);
-        storage.set('user', defaultUser);
-      }
-    };
+    if (!initialized) return;
+    if (!keycloak?.authenticated) {
+      setUser(null);
+      storage.remove('user');
+      return;
+    }
 
-    initUser();
-  }, []);
+    const token = keycloak.tokenParsed || {};
+    const roles = token?.realm_access?.roles || [];
+    const nextUser = {
+      id: token.sub,
+      name: token.name || token.preferred_username || token.email || '用户',
+      email: token.email || null,
+      roles,
+      isAdmin: roles.includes('admin'),
+      avatar: null,
+    };
+    setUser(nextUser);
+    storage.set('user', nextUser);
+  }, [initialized, keycloak?.authenticated, keycloak?.token]);
 
   // 切换主题
   const toggleTheme = useCallback(() => {

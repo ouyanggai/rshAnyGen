@@ -3,7 +3,7 @@
 import os
 import sys
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -20,13 +20,11 @@ from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
 from services.rag_pipeline.pipeline import RAGPipeline
 
-from services.rag_pipeline.database import init_db, get_db, Document
+from services.rag_pipeline.database import init_db, get_db, Document, KnowledgeBase
 from sqlalchemy.orm import Session
 from fastapi import Depends
 import uuid
-
-# Initialize database
-init_db()
+from datetime import datetime
 
 # Initialize logging
 log_manager = LogManager("rag_pipeline")
@@ -77,10 +75,6 @@ try:
     if "port" in vector_db_settings:
         vector_db_settings["port"] = _coerce_int(vector_db_settings.get("port"))
     if "dimension" in vector_db_settings:
-        # Allow embedding config to override vector_db dimension if not explicitly set in vector_db provider
-        # But here vector_db_settings already merged provider config.
-        # If vector_db config says 1024, but embedding is 2048, we should probably warn or sync.
-        # Let's trust embedding dimension if it's set in config
         if "embedding" in config and "dimension" in config["embedding"]:
              vector_db_settings["dimension"] = _coerce_int(config["embedding"]["dimension"])
         else:
@@ -90,8 +84,10 @@ except Exception as e:
     logger.warning(f"Failed to load config: {e}. Using defaults.")
     config = {}
 
+# Initialize database
+init_db()
+
 # Initialize Pipeline
-# Ensure we pass the full config, but pipeline expects specific sections
 pipeline = RAGPipeline(config)
 
 app = FastAPI(
@@ -100,11 +96,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# ... (CORS)
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Models
 class DocumentResponse(BaseModel):
     id: str
+    kb_id: str
     name: str
     size: int
     uploaded_at: str
@@ -115,18 +119,42 @@ class DocumentResponse(BaseModel):
 class IngestTextRequest(BaseModel):
     text: str
     doc_id: str
+    kb_id: str = "default"
     metadata: Optional[Dict[str, Any]] = None
 
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
     rerank: bool = False
+    kb_ids: Optional[List[str]] = None
 
 class SearchResultResponse(BaseModel):
     chunk_id: str
     content: str
     score: float
     metadata: Optional[Dict[str, Any]] = None
+
+class KnowledgeBaseCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    embedding_model: str = "zhipu"
+
+class KnowledgeBaseUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+class KnowledgeBaseResponse(BaseModel):
+    id: str
+    kb_id: str
+    name: str
+    description: Optional[str] = None
+    embedding_model: str
+    chunk_count: int
+    doc_count: int
+    created_at: str
+    updated_at: str
+    status: str
 
 @app.get("/", tags=["Root"])
 async def root():
@@ -136,13 +164,165 @@ async def root():
         "collection": pipeline.collection_name
     }
 
-@app.get("/api/v1/documents", response_model=List[DocumentResponse], tags=["Documents"])
-async def list_documents(db: Session = Depends(get_db)):
-    """List all documents"""
-    docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
+# --- Knowledge Base Management ---
+
+@app.get("/api/v1/kb", response_model=List[KnowledgeBaseResponse], tags=["Knowledge Bases"])
+async def list_knowledge_bases(db: Session = Depends(get_db)):
+    """List all knowledge bases"""
+    kbs = db.query(KnowledgeBase).filter(KnowledgeBase.status == 'active').all()
+    return [
+        KnowledgeBaseResponse(
+            id=kb.id,
+            kb_id=kb.kb_id,
+            name=kb.name,
+            description=kb.description,
+            embedding_model=kb.embedding_model,
+            chunk_count=kb.chunk_count,
+            doc_count=kb.doc_count,
+            created_at=kb.created_at.isoformat(),
+            updated_at=kb.updated_at.isoformat(),
+            status=kb.status
+        ) for kb in kbs
+    ]
+
+@app.post("/api/v1/kb", response_model=KnowledgeBaseResponse, tags=["Knowledge Bases"])
+async def create_knowledge_base(request: KnowledgeBaseCreate, db: Session = Depends(get_db)):
+    """Create a new knowledge base"""
+    # Check if name exists
+    existing = db.query(KnowledgeBase).filter(KnowledgeBase.name == request.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Knowledge base with this name already exists")
+    
+    # Generate kb_id
+    kb_uuid = str(uuid.uuid4())
+    kb_id = f"kb_{kb_uuid}"
+    
+    new_kb = KnowledgeBase(
+        kb_id=kb_id,
+        name=request.name,
+        description=request.description,
+        embedding_model=request.embedding_model
+    )
+    db.add(new_kb)
+    db.commit()
+    db.refresh(new_kb)
+    
+    return KnowledgeBaseResponse(
+        id=new_kb.id,
+        kb_id=new_kb.kb_id,
+        name=new_kb.name,
+        description=new_kb.description,
+        embedding_model=new_kb.embedding_model,
+        chunk_count=new_kb.chunk_count,
+        doc_count=new_kb.doc_count,
+        created_at=new_kb.created_at.isoformat(),
+        updated_at=new_kb.updated_at.isoformat(),
+        status=new_kb.status
+    )
+
+@app.get("/api/v1/kb/{kb_id}", response_model=KnowledgeBaseResponse, tags=["Knowledge Bases"])
+async def get_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
+    """Get knowledge base details"""
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    
+    return KnowledgeBaseResponse(
+        id=kb.id,
+        kb_id=kb.kb_id,
+        name=kb.name,
+        description=kb.description,
+        embedding_model=kb.embedding_model,
+        chunk_count=kb.chunk_count,
+        doc_count=kb.doc_count,
+        created_at=kb.created_at.isoformat(),
+        updated_at=kb.updated_at.isoformat(),
+        status=kb.status
+    )
+
+@app.put("/api/v1/kb/{kb_id}", response_model=KnowledgeBaseResponse, tags=["Knowledge Bases"])
+async def update_knowledge_base(kb_id: str, request: KnowledgeBaseUpdate, db: Session = Depends(get_db)):
+    """Update knowledge base"""
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    
+    if request.name:
+        # Check name uniqueness if changed
+        if request.name != kb.name:
+            existing = db.query(KnowledgeBase).filter(KnowledgeBase.name == request.name).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Knowledge base name already taken")
+        kb.name = request.name
+        
+    if request.description is not None:
+        kb.description = request.description
+        
+    if request.status:
+        kb.status = request.status
+        
+    db.commit()
+    db.refresh(kb)
+    
+    return KnowledgeBaseResponse(
+        id=kb.id,
+        kb_id=kb.kb_id,
+        name=kb.name,
+        description=kb.description,
+        embedding_model=kb.embedding_model,
+        chunk_count=kb.chunk_count,
+        doc_count=kb.doc_count,
+        created_at=kb.created_at.isoformat(),
+        updated_at=kb.updated_at.isoformat(),
+        status=kb.status
+    )
+
+@app.delete("/api/v1/kb/{kb_id}", tags=["Knowledge Bases"])
+async def delete_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
+    """Delete knowledge base and all its documents"""
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    
+    # 1. Delete all documents files
+    docs = db.query(Document).filter(Document.kb_id == kb_id).all()
+    upload_dir = Path(project_root) / "uploads"
+    for doc in docs:
+        try:
+            # Try to delete file
+            file_path = upload_dir / f"{doc.id}_{doc.name}"
+            if file_path.exists():
+                os.remove(file_path)
+        except Exception as e:
+            logger.error(f"Failed to delete file for {doc.id}: {e}")
+            
+    # 2. Delete from vector store
+    try:
+        pipeline.vector_store.delete_by_kb_id(kb_id)
+    except Exception as e:
+        logger.error(f"Failed to delete vectors for kb {kb_id}: {e}")
+        
+    # 3. Delete from DB (Cascade should handle documents, but we delete kb explicitly)
+    db.delete(kb)
+    db.commit()
+    
+    return {"status": "success", "id": kb_id}
+
+# --- Document Management ---
+
+@app.get("/api/v1/kb/{kb_id}/documents", response_model=List[DocumentResponse], tags=["Documents"])
+async def list_documents(kb_id: str, db: Session = Depends(get_db)):
+    """List all documents in a knowledge base"""
+    # Verify KB exists
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+    docs = db.query(Document).filter(Document.kb_id == kb_id).order_by(Document.uploaded_at.desc()).all()
     return [
         DocumentResponse(
             id=d.id,
+            kb_id=d.kb_id,
             name=d.name,
             size=d.size,
             uploaded_at=d.uploaded_at.isoformat(),
@@ -152,58 +332,23 @@ async def list_documents(db: Session = Depends(get_db)):
         ) for d in docs
     ]
 
-@app.delete("/api/v1/documents/{doc_id}", tags=["Documents"])
-async def delete_document(doc_id: str, db: Session = Depends(get_db)):
-    """Delete a document"""
-    doc = db.query(Document).filter(Document.id == doc_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    # 1. Delete physical file
-    try:
-        upload_dir = Path(project_root) / "uploads"
-        # Try to find file with both patterns (with and without uuid prefix if logic changed)
-        # Current logic uses: f"{doc_id}_{doc.name}"
-        file_path = upload_dir / f"{doc_id}_{doc.name}"
-        if file_path.exists():
-            os.remove(file_path)
-            logger.info(f"Deleted file: {file_path}")
-        else:
-            logger.warning(f"File not found for deletion: {file_path}")
-            
-            # Fallback: check if there are other files starting with doc_id
-            # in case naming convention changed
-            for f in upload_dir.glob(f"{doc_id}_*"):
-                os.remove(f)
-                logger.info(f"Deleted fallback file: {f}")
-                
-    except Exception as e:
-        logger.error(f"Failed to delete file for {doc_id}: {e}")
-        # Continue to delete from DB/Vector store even if file delete fails
-    
-    # 2. Delete from vector store
-    try:
-        pipeline.vector_store.delete_by_doc_id(doc_id)
-    except Exception as e:
-        logger.error(f"Failed to delete vectors for {doc_id}: {e}")
-
-    # 3. Delete record from DB
-    db.delete(doc)
-    db.commit()
-    return {"status": "success", "id": doc_id}
-
-@app.post("/api/v1/documents", response_model=DocumentResponse, tags=["Documents"])
+@app.post("/api/v1/kb/{kb_id}/documents", response_model=DocumentResponse, tags=["Documents"])
 async def upload_document(
+    kb_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload a file without indexing"""
+    """Upload a file to a knowledge base without indexing"""
+    # Verify KB exists
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
     # Create DB record
     doc_id = str(uuid.uuid4())
     file_size = 0
     
-    # Save to persistent storage (not just temp) because we need it later for indexing
-    # For now, we'll use a 'uploads' directory in the service folder
+    # Save to persistent storage
     upload_dir = Path(project_root) / "uploads"
     upload_dir.mkdir(exist_ok=True)
     
@@ -215,15 +360,21 @@ async def upload_document(
     
     db_doc = Document(
         id=doc_id,
+        kb_id=kb_id,
         name=file.filename,
         size=file_size,
-        status="uploaded"  # New status
+        status="uploaded"
     )
     db.add(db_doc)
+    
+    # Update KB doc count
+    kb.doc_count += 1
+    
     db.commit()
     
     return DocumentResponse(
         id=db_doc.id,
+        kb_id=db_doc.kb_id,
         name=db_doc.name,
         size=db_doc.size,
         uploaded_at=db_doc.uploaded_at.isoformat(),
@@ -232,14 +383,15 @@ async def upload_document(
         error_message=db_doc.error_message
     )
 
-@app.post("/api/v1/documents/{doc_id}/index", tags=["Documents"])
+@app.post("/api/v1/kb/{kb_id}/documents/{doc_id}/index", tags=["Documents"])
 async def index_document(
+    kb_id: str,
     doc_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Start indexing a previously uploaded document"""
-    doc = db.query(Document).filter(Document.id == doc_id).first()
+    doc = db.query(Document).filter(Document.id == doc_id, Document.kb_id == kb_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
         
@@ -261,28 +413,76 @@ async def index_document(
         raise HTTPException(status_code=404, detail="File source not found")
 
     # Add to background task
-    background_tasks.add_task(process_document_task, str(file_path), doc_id)
+    background_tasks.add_task(process_document_task, str(file_path), doc_id, kb_id)
     
     return {"status": "processing_started", "id": doc_id}
 
-async def process_document_task(file_path: str, doc_id: str):
+@app.delete("/api/v1/documents/{doc_id}", tags=["Documents"])
+async def delete_document(doc_id: str, db: Session = Depends(get_db)):
+    """Delete a document"""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    kb_id = doc.kb_id
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
+    
+    # 1. Delete physical file
+    try:
+        upload_dir = Path(project_root) / "uploads"
+        file_path = upload_dir / f"{doc_id}_{doc.name}"
+        if file_path.exists():
+            os.remove(file_path)
+            logger.info(f"Deleted file: {file_path}")
+        else:
+            # Fallback
+            for f in upload_dir.glob(f"{doc_id}_*"):
+                os.remove(f)
+    except Exception as e:
+        logger.error(f"Failed to delete file for {doc_id}: {e}")
+    
+    # 2. Delete from vector store
+    try:
+        pipeline.vector_store.delete_by_doc_id(doc_id)
+    except Exception as e:
+        logger.error(f"Failed to delete vectors for {doc_id}: {e}")
+
+    # 3. Delete record from DB
+    db.delete(doc)
+    
+    # Update KB stats
+    if kb:
+        kb.doc_count = max(0, kb.doc_count - 1)
+        kb.chunk_count = max(0, kb.chunk_count - doc.chunks)
+    
+    db.commit()
+    return {"status": "success", "id": doc_id}
+
+async def process_document_task(file_path: str, doc_id: str, kb_id: str):
     """Background task for processing document"""
     # We need a new DB session for the background task
     db = next(get_db())
     doc = db.query(Document).filter(Document.id == doc_id).first()
+    kb = db.query(KnowledgeBase).filter(KnowledgeBase.kb_id == kb_id).first()
     
     try:
         # Ingest
         result = await pipeline.ingest_document(
             file_path,
-            metadata={"original_filename": doc.name, "doc_id": doc_id}
+            metadata={"original_filename": doc.name, "doc_id": doc_id},
+            kb_id=kb_id
         )
         
         # Update DB
         doc.status = "indexed"
-        doc.chunks = result.get("chunks_created", 0)
+        chunks_created = result.get("chunks_created", 0)
+        doc.chunks = chunks_created
+        
+        if kb:
+            kb.chunk_count += chunks_created
+            
         db.commit()
-        logger.info(f"Successfully indexed document {doc_id}")
+        logger.info(f"Successfully indexed document {doc_id} into kb {kb_id}")
         
     except Exception as e:
         logger.error(f"Indexing failed for {doc_id}: {e}")
@@ -292,7 +492,6 @@ async def process_document_task(file_path: str, doc_id: str):
     finally:
         db.close()
 
-
 @app.post("/api/v1/ingest/text", tags=["Ingestion"])
 async def ingest_text(request: IngestTextRequest):
     """Ingest raw text"""
@@ -300,7 +499,8 @@ async def ingest_text(request: IngestTextRequest):
         result = await pipeline.ingest_text(
             request.text,
             request.doc_id,
-            request.metadata
+            request.metadata,
+            kb_id=request.kb_id
         )
         return result
     except Exception as e:
@@ -314,7 +514,8 @@ async def search(request: SearchRequest):
         results = await pipeline.search(
             request.query,
             top_k=request.top_k,
-            rerank=request.rerank
+            rerank=request.rerank,
+            kb_ids=request.kb_ids
         )
         
         # Convert internal SearchResult objects to response model
@@ -337,5 +538,4 @@ async def health_check():
 
 if __name__ == "__main__":
     port = config.get("ports", {}).get("rag_pipeline", 9305)
-    # Use server:app instead of main:app
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)

@@ -1,0 +1,49 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+# 首先使用 scp 上传文件
+spawn scp /Volumes/oygsky/AIstudy/rshAnyGen/docker-compose.keycloak.yml $user@$host:/root/keycloak/
+expect {
+    "password:" {
+        send "$password\r"
+        expect eof
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+# 然后SSH连接启动服务
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+        send "ls -la\r"
+        expect "#"
+        send "docker-compose -f docker-compose.keycloak.yml up -d\r"
+        expect {
+            -timeout 120
+            "#"
+        }
+        send "sleep 5\r"
+        expect "#"
+        send "docker-compose -f docker-compose.keycloak.yml ps\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

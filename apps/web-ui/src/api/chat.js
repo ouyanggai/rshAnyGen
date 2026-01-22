@@ -2,10 +2,16 @@
  * 聊天 API - 支持 SSE 流式传输
  */
 
+import { getAccessToken } from '../auth/authStore';
+import { storage } from '../utils/storage';
+
+const SESSION_KEY = 'active_session_id';
+
 // 流式聊天
 export async function streamChat(message, options = {}) {
   const {
     enableSearch = false,
+    kbIds = [],
     onThinking = () => {},
     onChunk = () => {},
     onDone = () => {},
@@ -13,13 +19,26 @@ export async function streamChat(message, options = {}) {
   } = options;
 
   try {
+    const token = getAccessToken();
+    const sessionId = storage.get(SESSION_KEY);
+
     const response = await fetch('/api/v1/chat/stream', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
       },
-      body: JSON.stringify({ message, enable_search: enableSearch, stream: true }),
+      body: JSON.stringify({ 
+        message, 
+        enable_search: enableSearch, 
+        kb_ids: kbIds,
+        stream: true 
+      }),
     });
+
+    const nextSessionId = response.headers.get('X-Session-ID');
+    if (nextSessionId) storage.set(SESSION_KEY, nextSessionId);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -82,14 +101,32 @@ export async function streamChat(message, options = {}) {
 }
 
 // 发送消息（非流式，用于兼容）
-export async function sendMessage(message) {
+export async function sendMessage(message, options = {}) {
+  const {
+    enableSearch = false,
+    kbIds = [],
+  } = options;
+
+  const token = getAccessToken();
+  const sessionId = storage.get(SESSION_KEY);
+
   const response = await fetch('/api/v1/chat/stream', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
     },
-    body: JSON.stringify({ message, stream: false }),
+    body: JSON.stringify({ 
+      message, 
+      enable_search: enableSearch, 
+      kb_ids: kbIds,
+      stream: false 
+    }),
   });
+
+  const nextSessionId = response.headers.get('X-Session-ID');
+  if (nextSessionId) storage.set(SESSION_KEY, nextSessionId);
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);

@@ -1,0 +1,30 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+
+set host "192.168.1.248"
+set user "root"
+set password "524478201"
+
+spawn ssh $user@$host
+expect {
+    "password:" {
+        send "$password\r"
+        expect "#"
+        send "cd /root/keycloak\r"
+        expect "#"
+        send "docker exec keycloak /opt/keycloak/bin/kcadm.sh help\r"
+        expect "#"
+        send "docker exec keycloak /opt/keycloak/bin/kcadm.sh help create\r"
+        expect "#"
+        send "docker exec keycloak /opt/keycloak/bin/kcadm.sh help get\r"
+        expect "#"
+        send "exit\r"
+    }
+    "Are you sure you want to continue connecting" {
+        send "yes\r"
+        exp_continue
+    }
+}
+
+expect eof

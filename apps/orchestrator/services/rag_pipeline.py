@@ -14,13 +14,14 @@ class RAGPipelineClient:
         self.base_url = f"http://localhost:{config.get('ports', {}).get('rag_pipeline', 9305)}"
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=60.0)
 
-    async def search(self, query: str, top_k: int = 5, rerank: bool = True) -> List[Dict[str, Any]]:
+    async def search(self, query: str, top_k: int = 5, rerank: bool = True, kb_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Search knowledge base"""
         try:
             payload = {
                 "query": query,
                 "top_k": top_k,
-                "rerank": rerank
+                "rerank": rerank,
+                "kb_ids": kb_ids
             }
             response = await self.client.post("/api/v1/search", json=payload)
             response.raise_for_status()

@@ -1,5 +1,5 @@
 """Skills 管理 API"""
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import List
 from pydantic import BaseModel
 import httpx
@@ -7,6 +7,7 @@ import httpx
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
 from apps.gateway.models import SkillInfo, SkillListResponse
+from apps.gateway.middleware.auth import require_auth, require_any_role
 
 # 使用共享配置实例
 config = ConfigLoader()
@@ -19,7 +20,7 @@ class ToggleRequest(BaseModel):
     """Toggle 请求"""
     enabled: bool
 
-router = APIRouter(prefix="/api/v1/skills", tags=["skills"])
+router = APIRouter(prefix="/api/v1/skills", tags=["skills"], dependencies=[Depends(require_auth)])
 
 # 从配置文件读取 Skills Registry URL
 SKILLS_REGISTRY_URL = config.get(
@@ -90,7 +91,11 @@ async def get_skill(skill_id: str) -> SkillInfo:
         raise HTTPException(status_code=503, detail="Skills Registry unreachable")
 
 @router.post("/{skill_id}/toggle")
-async def toggle_skill(skill_id: str, request: ToggleRequest) -> SkillInfo:
+async def toggle_skill(
+    skill_id: str,
+    request: ToggleRequest,
+    _user=Depends(require_any_role(["admin"])),
+) -> SkillInfo:
     """启用/禁用 Skill (暂未实现后端持久化)"""
     logger.info(f"Toggling skill {skill_id} to {request.enabled}")
     
