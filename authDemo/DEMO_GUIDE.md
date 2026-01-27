@@ -11,6 +11,14 @@
 *   **Client ID**: `1e27e696c8832ea6bf9f`
 *   **Client Secret**: `f2a12262d6116ec505b1d480dcd0eea78fe134d2`
 *   **Redirect URL (回调地址)**: `http://192.168.1.212:5174/callback`
+*   **Certificate (公钥证书)**: 需要在 `application.yml` 中配置 `casdoor.certificate`。
+
+> **如何获取公钥证书？**
+> 1. 登录润世华统一登录平台管理后台。
+> 2. 进入 **Certs (证书)** 菜单。
+> 3. 找到您的应用所使用的证书 (例如 `cert-built-in`)。
+> 4. 点击 **Edit (编辑)**，复制 `Certificate` 内容 (包含 `-----BEGIN CERTIFICATE-----` 和 `-----END CERTIFICATE-----`)。
+> 5. 将其粘贴到后端配置文件 `authDemo/java-backend/src/main/resources/application.yml` 的 `casdoor.certificate` 字段中。
 
 > **注意**：请登录润世华统一登录平台管理后台，找到对应的应用 (Application)，在 **Redirect URLs** 列表中添加上述地址。如果地址不匹配，平台将会拒绝认证请求。
 
