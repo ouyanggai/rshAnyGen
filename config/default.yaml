@@ -40,12 +40,13 @@ dependencies:
   qdrant:
     host: "localhost"
     port: 6333
-  keycloak:
-    url: "http://192.168.1.248:8080"
-    realm: "rshAnyGen"
-    frontend_client_id: "web-ui"
-    backend_client_id: "backend-api"
-    backend_client_secret: "backend-secret-123456"
+  casdoor:
+    endpoint: "http://192.168.1.248:8000"
+    client_id: "2ce83193fbdd8973aa55"
+    client_secret: "d6d793bf1cb6af57f6a8cfdaa5808d8b1b023c79"
+    organization_name: "rsh"
+    application_name: "润小华"
+    redirect_uri: "http://192.168.1.212:9300/callback"
 
 # LLM 默认配置
 llm:

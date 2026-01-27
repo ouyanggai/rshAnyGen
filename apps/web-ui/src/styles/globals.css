@@ -1,4 +1,5 @@
 /* ChatUI 样式 - @import 必须在最前面 */
+@import '../assets/fonts/fonts.css';
 @import '@chatui/core/dist/index.css';
 
 @tailwind base;

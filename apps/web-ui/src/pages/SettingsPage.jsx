@@ -11,27 +11,23 @@ import {
 } from '@heroicons/react/24/outline';
 
 export default function SettingsPage() {
-  const { user, updateUser } = useApp();
+  const { user, logout } = useApp();
   const { theme, setTheme } = useTheme();
-  const [userName, setUserName] = useState(user?.name || '');
-
-  const handleSaveName = () => {
-    if (userName.trim()) {
-      updateUser({ name: userName.trim() });
-    }
-  };
-
+  
   const settingsSections = [
     {
-      title: '个人设置',
+      title: '个人信息',
       icon: UserIcon,
       items: [
         {
           label: '用户名',
-          type: 'input',
-          value: userName,
-          onChange: setUserName,
-          onSave: handleSaveName,
+          type: 'info',
+          value: user?.name || '用户',
+        },
+        {
+          label: '角色',
+          type: 'info',
+          value: user?.isAdmin ? '管理员' : '普通用户',
         },
       ],
     },
@@ -75,7 +71,11 @@ export default function SettingsPage() {
       icon: ShieldCheckIcon,
       items: [
         { label: '清除聊天记录', type: 'danger' },
-        { label: '退出登录', type: 'danger' },
+        { 
+          label: '退出登录', 
+          type: 'danger',
+          onClick: logout
+        },
       ],
     },
   ];
@@ -114,6 +114,12 @@ export default function SettingsPage() {
                   className="flex items-center justify-between p-4 hover:bg-bg-tertiary dark:hover:bg-white/5 transition-colors"
                 >
                   <span className="font-medium text-text-primary dark:text-text-primary-dark">{item.label}</span>
+
+                  {item.type === 'info' && (
+                    <span className="text-sm text-text-muted dark:text-text-secondary-dark">
+                      {item.value}
+                    </span>
+                  )}
 
                   {item.type === 'input' && (
                     <div className="flex items-center gap-2">
@@ -187,7 +193,10 @@ export default function SettingsPage() {
                   )}
 
                   {item.type === 'danger' && (
-                    <button className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                    <button 
+                      onClick={item.onClick}
+                      className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                    >
                       {item.label}
                     </button>
                   )}

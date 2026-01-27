@@ -87,14 +87,13 @@ async def health_check():
 
 
 # 注册路由
-from apps.gateway.routers import chat, skills, kb, auth, admin_users, sessions
+from apps.gateway.routers import chat, skills, kb, auth, sessions
 
 app.include_router(auth.router)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(chat.router)
 app.include_router(skills.router)
 app.include_router(kb.router)
-app.include_router(admin_users.router)
 app.include_router(sessions.router)
 
 # 添加会话管理中间件

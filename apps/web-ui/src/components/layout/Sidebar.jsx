@@ -9,7 +9,6 @@ import {
   BeakerIcon,
   WrenchIcon,
   BookOpenIcon,
-  UsersIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   MoonIcon,
@@ -28,7 +27,6 @@ const navItems = [
 
 const adminNavItems = [
   { to: '/admin/models', icon: BeakerIcon, label: '模型配置' },
-  { to: '/admin/users', icon: UsersIcon, label: '用户管理' },
   { to: '/admin/skills', icon: WrenchIcon, label: '技能管理' },
   { to: '/admin/knowledge', icon: BookOpenIcon, label: '知识库' },
 ];

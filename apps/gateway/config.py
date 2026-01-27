@@ -8,11 +8,6 @@ from apps.shared.config_loader import ConfigLoader
 _config = ConfigLoader()
 
 
-def _default_jwt_issuer() -> str:
-    url = _config.get("dependencies.keycloak.url", "http://192.168.1.248:8080")
-    realm = _config.get("dependencies.keycloak.realm", "rshAnyGen")
-    return f"{url}/realms/{realm}"
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -26,17 +21,17 @@ class Settings(BaseSettings):
     redis_db: int = _config.get("dependencies.redis.db", 0)
     redis_ttl: int = _config.get("dependencies.redis.ttl", 3600)
 
-    keycloak_url: str = _config.get("dependencies.keycloak.url", "http://192.168.1.248:8080")
-    keycloak_realm: str = _config.get("dependencies.keycloak.realm", "rshAnyGen")
-    keycloak_frontend_client_id: str = _config.get("dependencies.keycloak.frontend_client_id", "web-ui")
-    keycloak_backend_client_id: str = _config.get("dependencies.keycloak.backend_client_id", "backend-api")
-    keycloak_backend_client_secret: str = _config.get("dependencies.keycloak.backend_client_secret", "")
-    keycloak_admin_username: Optional[str] = None
-    keycloak_admin_password: Optional[str] = None
+    casdoor_endpoint: str = _config.get("dependencies.casdoor.endpoint", "http://192.168.1.248:8000")
+    casdoor_client_id: str = _config.get("dependencies.casdoor.client_id", "2ce83193fbdd8973aa55")
+    casdoor_client_secret: str = _config.get("dependencies.casdoor.client_secret", "")
+    casdoor_organization_name: str = _config.get("dependencies.casdoor.organization_name", "rsh")
+    casdoor_application_name: str = _config.get("dependencies.casdoor.application_name", "rshAnyGen")
+    casdoor_redirect_uri: str = _config.get("dependencies.casdoor.redirect_uri", "http://192.168.1.212:9300/callback")
 
     jwt_algorithm: str = "RS256"
-    jwt_issuer: str = _default_jwt_issuer()
-    jwt_audience: str = "account"
+    jwt_issuer: str = _config.get("dependencies.casdoor.endpoint", "http://192.168.1.248:8000")
+    jwt_audience: str = _config.get("dependencies.casdoor.client_id", "2ce83193fbdd8973aa55")
+    jwt_jwks_url: str = f"{_config.get('dependencies.casdoor.endpoint', 'http://192.168.1.248:8000')}/.well-known/jwks"
 
     log_level: str = _config.get("app.log_level", "INFO")
 

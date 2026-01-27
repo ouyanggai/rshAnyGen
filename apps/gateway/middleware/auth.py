@@ -1,5 +1,6 @@
-"""JWT 认证中间件 - Keycloak OIDC"""
-from fastapi import Request, HTTPException, status
+"""JWT 认证中间件 - OIDC"""
+from fastapi import Request, Response, status, HTTPException
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Callable, Optional, Sequence
 import httpx
@@ -16,13 +17,13 @@ log_manager = LogManager("gateway", log_dir="logs")
 logger = log_manager.get_logger()
 
 
-class KeycloakJWKsCache:
-    """Keycloak JWKS 缓存 - 定期刷新公钥"""
+class JWKsCache:
+    """JWKS 缓存 - 定期刷新公钥"""
 
     def __init__(self):
         self._jwks: dict = {}
         self._lock = asyncio.Lock()
-        self._url = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+        self._url = settings.jwt_jwks_url
 
     async def get_jwks(self) -> dict:
         """获取 JWKS (带缓存)"""
@@ -31,7 +32,7 @@ class KeycloakJWKsCache:
         return self._jwks
 
     async def _refresh_jwks(self):
-        """从 Keycloak 刷新 JWKS"""
+        """刷新 JWKS"""
         async with self._lock:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 try:
@@ -52,7 +53,7 @@ class KeycloakJWKsCache:
 
 
 # 全局 JWKS 缓存实例
-_jwks_cache = KeycloakJWKsCache()
+_jwks_cache = JWKsCache()
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
@@ -110,7 +111,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 "username": payload.get("preferred_username") or payload.get("email"),
                 "email": payload.get("email"),
                 "name": payload.get("name"),
-                "roles": payload.get("realm_access", {}).get("roles", []),
+                "roles": (
+                    payload.get("roles")
+                    or payload.get("authorities")
+                    or payload.get("realm_access", {}).get("roles", [])
+                ),
                 "exp": payload.get("exp"),
             }
             request.state.user = user_info
@@ -118,9 +123,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         except (JWTError, ExpiredSignatureError) as e:
             logger.warning(f"JWT validation failed: {e}")
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
+                content={"detail": "Invalid or expired token"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -162,7 +167,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             audience=self.audience,
             issuer=self.issuer,
             options={
-                "verify_aud": False,  # Keycloak tokens may not have audience set
+                "verify_aud": False,
                 "verify_iss": True,
             }
         )

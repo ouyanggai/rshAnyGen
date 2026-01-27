@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useKeycloak } from '@react-keycloak/web';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import api from '../api/client';
+import { setAccessToken as setAccessTokenStore } from '../auth/authStore';
 import { storage } from '../utils/storage';
 
 const AppContext = createContext();
@@ -13,9 +14,11 @@ export const useApp = () => {
 };
 
 export function AppProvider({ children }) {
-  const { keycloak, initialized } = useKeycloak();
   // 用户信息
   const [user, setUser] = useState(null);
+  const [accessToken, setAccessToken] = useState(() => storage.get('accessToken'));
+  const [authError, setAuthError] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
 
   // 主题设置
   const [theme, setTheme] = useState(() => {
@@ -78,27 +81,54 @@ export function AppProvider({ children }) {
     storage.set('sidebarCollapsed', sidebarCollapsed);
   }, [sidebarCollapsed]);
 
+  const parsedToken = useMemo(() => {
+    if (!accessToken) return null;
+    try {
+      const payload = accessToken.split('.')[1];
+      if (!payload) return null;
+      const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = atob(normalized);
+      return JSON.parse(decoded);
+    } catch {
+      return null;
+    }
+  }, [accessToken]);
+
   useEffect(() => {
-    if (!initialized) return;
-    if (!keycloak?.authenticated) {
+    setAccessTokenStore(accessToken || null);
+    if (!accessToken) {
+      storage.remove('accessToken');
+      return;
+    }
+    storage.set('accessToken', accessToken);
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) {
       setUser(null);
       storage.remove('user');
       return;
     }
-
-    const token = keycloak.tokenParsed || {};
-    const roles = token?.realm_access?.roles || [];
+    const payload = parsedToken || {};
+    const exp = payload.exp;
+    if (exp && Date.now() / 1000 >= exp) {
+      setAccessToken(null);
+      setUser(null);
+      storage.remove('user');
+      return;
+    }
+    const roles = payload.roles || payload.authorities || payload?.realm_access?.roles || [];
     const nextUser = {
-      id: token.sub,
-      name: token.name || token.preferred_username || token.email || '用户',
-      email: token.email || null,
+      id: payload.sub,
+      name: payload.name || payload.preferred_username || payload.email || '用户',
+      email: payload.email || null,
       roles,
       isAdmin: roles.includes('admin'),
       avatar: null,
     };
     setUser(nextUser);
     storage.set('user', nextUser);
-  }, [initialized, keycloak?.authenticated, keycloak?.token]);
+  }, [accessToken, parsedToken]);
 
   // 切换主题
   const toggleTheme = useCallback(() => {
@@ -119,6 +149,38 @@ export function AppProvider({ children }) {
     });
   }, []);
 
+  const login = useCallback(async (username, password) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const response = await api.post('/v1/auth/login', { username, password });
+      const token = response?.data?.access_token || null;
+      if (!token) {
+        throw new Error('登录失败');
+      }
+      setAccessToken(token);
+      return { ok: true };
+    } catch (error) {
+      const message = error?.response?.data?.detail || error?.message || '登录失败';
+      setAuthError(message);
+      return { ok: false, error: message };
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/v1/auth/logout');
+    } catch {
+    }
+    setAccessToken(null);
+    setUser(null);
+    storage.remove('user');
+    storage.remove('accessToken'); // Ensure token is removed
+    window.location.href = '/'; // Force reload to trigger AuthGate
+  }, []);
+
   const value = {
     user,
     setUser,
@@ -131,6 +193,12 @@ export function AppProvider({ children }) {
     isLoading,
     setIsLoading,
     updateUser,
+    accessToken,
+    setAccessToken,
+    login,
+    logout,
+    authError,
+    authLoading,
   };
 
   return (

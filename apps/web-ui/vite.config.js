@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 9300,
+    host: '0.0.0.0',
     proxy: {
       '/api/v1/ingest': {
         target: 'http://localhost:9305',
