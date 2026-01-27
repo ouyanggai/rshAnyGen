@@ -42,6 +42,11 @@ env/
 # Node
 node_modules/
 apps/web-ui/dist/
+authDemo/vue-frontend/dist/
+
+# Java
+target/
+*.class
 
 # Testing
 .pytest_cache/
