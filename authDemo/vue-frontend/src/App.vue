@@ -23,6 +23,28 @@ api.interceptors.request.use(config => {
   return config
 })
 
+api.interceptors.response.use(
+  (response) => {
+    if (response.data && response.data.status === 'error') {
+      if (response.data.msg && (response.data.msg.includes('expired') || response.data.msg.includes('token'))) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('token_expiration')
+        window.location.href = '/'
+      }
+    }
+    return response
+  },
+  (error) => {
+    
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('token_expiration')
+      window.location.href = '/'
+    }
+    return Promise.reject(error)
+  }
+)
+
 const isTokenExpired = computed(() => timeLeft.value === 'Expired')
 
 const formatTimeLeft = (ms) => {
@@ -64,13 +86,20 @@ const login = async () => {
   }
 }
 
-const logout = () => {
+const logout = async () => {
+  try {
+    await api.post('/sso-logout')
+  } catch (e) {
+    console.error("SSO logout failed", e)
+  }
+
   localStorage.removeItem('access_token')
   localStorage.removeItem('token_expiration')
   isAuthenticated.value = false
   user.value = null
   tokenExpiration.value = null
   if (timer) clearInterval(timer)
+  
   window.location.href = '/'
 }
 

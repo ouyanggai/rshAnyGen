@@ -72,6 +72,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
         "/auth/login",
         "/auth/callback",
+        "/auth/sso-logout",
     }
 
     def __init__(self, app):
@@ -79,6 +80,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.issuer = settings.jwt_issuer
         self.audience = settings.jwt_audience
         self.algorithm = settings.jwt_algorithm
+        self.userinfo_url = f"{settings.casdoor_endpoint.rstrip('/')}/api/userinfo"
 
     async def dispatch(self, request: Request, call_next: Callable):
         """处理请求，验证 JWT token"""
@@ -104,6 +106,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         try:
             # 获取并验证 token
             payload = await self._verify_token(token)
+            await self._validate_token_with_casdoor(token)
 
             # 提取用户信息
             user_info = {
@@ -173,6 +176,15 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         )
 
         return payload
+
+    async def _validate_token_with_casdoor(self, token: str) -> None:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                self.userinfo_url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if response.status_code >= 400:
+                raise JWTError("Token invalidated")
 
 
 async def get_current_user(request: Request) -> Optional[dict]:

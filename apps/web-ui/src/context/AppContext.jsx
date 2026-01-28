@@ -117,17 +117,39 @@ export function AppProvider({ children }) {
       storage.remove('user');
       return;
     }
-    const roles = payload.roles || payload.authorities || payload?.realm_access?.roles || [];
-    const nextUser = {
-      id: payload.sub,
-      name: payload.name || payload.preferred_username || payload.email || '用户',
-      email: payload.email || null,
-      roles,
-      isAdmin: roles.includes('admin'),
-      avatar: null,
+    let cancelled = false;
+
+    async function refreshUser() {
+      try {
+        const response = await api.get('/v1/auth/userinfo');
+        if (cancelled) return;
+        const data = response?.data || {};
+        const roles = data.roles || [];
+        const nextUser = {
+          id: data.sub,
+          name: data.name || data.username || data.email || '用户',
+          email: data.email || null,
+          roles,
+          isAdmin: roles.includes('admin'),
+          avatar: null,
+        };
+        setUser(nextUser);
+        storage.set('user', nextUser);
+      } catch (error) {
+        if (cancelled) return;
+        if (error?.response?.status === 401) {
+          setAccessToken(null);
+          setUser(null);
+          storage.remove('user');
+          storage.remove('accessToken');
+        }
+      }
+    }
+
+    refreshUser();
+    return () => {
+      cancelled = true;
     };
-    setUser(nextUser);
-    storage.set('user', nextUser);
   }, [accessToken, parsedToken]);
 
   // 切换主题
@@ -171,14 +193,16 @@ export function AppProvider({ children }) {
 
   const logout = useCallback(async () => {
     try {
-      await api.post('/v1/auth/logout');
-    } catch {
+      await api.post('/v1/auth/sso-logout');
+    } catch (e) {
+      console.error("SSO logout failed", e);
+    } finally {
+      setAccessToken(null);
+      setUser(null);
+      storage.remove('user');
+      storage.remove('accessToken');
+      window.location.href = '/';
     }
-    setAccessToken(null);
-    setUser(null);
-    storage.remove('user');
-    storage.remove('accessToken'); // Ensure token is removed
-    window.location.href = '/'; // Force reload to trigger AuthGate
   }, []);
 
   const value = {

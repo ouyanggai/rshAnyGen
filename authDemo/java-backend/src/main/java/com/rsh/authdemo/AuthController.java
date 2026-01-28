@@ -4,6 +4,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.server.ResponseStatusException;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import org.casbin.casdoor.service.AuthService;
@@ -41,6 +44,58 @@ public class AuthController {
         return Map.of("login_url", authorizeUrl);
     }
 
+    @GetMapping("/logout-url")
+    public Map<String, String> getLogoutUrl(@RequestParam(required = false) String redirectUri, @RequestParam(required = false) String id_token_hint) {
+        // 构造 Casdoor 登出 URL
+        // 默认跳回登录回调地址的根路径（即前端首页），如果前端传了 redirectUri 则使用传入的
+        String targetUrl = this.redirectUri;
+        if (redirectUri != null && !redirectUri.isEmpty()) {
+            targetUrl = redirectUri;
+        } else {
+             // 尝试从配置的回调地址中提取首页地址 (去除 /callback)
+             if (targetUrl.endsWith("/callback")) {
+                 targetUrl = targetUrl.substring(0, targetUrl.length() - "/callback".length());
+             }
+        }
+
+        try {
+            StringBuilder logoutUrl = new StringBuilder(String.format("%s/api/logout?post_logout_redirect_uri=%s",
+                    casdoorEndpoint,
+                    java.net.URLEncoder.encode(targetUrl, java.nio.charset.StandardCharsets.UTF_8.toString())));
+            
+            if (id_token_hint != null && !id_token_hint.isEmpty()) {
+                logoutUrl.append("&id_token_hint=").append(id_token_hint);
+            }
+            
+            return Map.of("logout_url", logoutUrl.toString());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to encode logout url", e);
+        }
+    }
+
+    @PostMapping("/sso-logout")
+    public Map<String, Object> ssoLogout(@RequestHeader("Authorization") String authHeader) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", authHeader);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                casdoorEndpoint + "/api/sso-logout",
+                HttpMethod.POST,
+                entity,
+                String.class
+            );
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", response.getStatusCode().value());
+            result.put("body", response.getBody());
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("SSO logout failed: " + e.getMessage());
+        }
+    }
+
     @PostMapping("/token")
     public Map<String, Object> getToken(@RequestBody Map<String, String> body) {
         String code = body.get("code");
@@ -68,24 +123,22 @@ public class AuthController {
 
     @GetMapping("/userinfo")
     public Map<String, Object> getUserInfo(@RequestHeader("Authorization") String authHeader) {
-        String token = authHeader.replace("Bearer ", "");
-        
-        // 使用 SDK 解析 Token 获取用户信息 (本地解析 Claims)
         try {
-            User user = casdoorAuthService.parseJwtToken(token);
-            // 转换为 Map 返回给前端
-            Map<String, Object> userMap = new HashMap<>();
-            userMap.put("name", user.name);
-            userMap.put("username", user.name); // SDK uses name as username usually
-            userMap.put("displayName", user.displayName);
-            userMap.put("email", user.email);
-            userMap.put("avatar", user.avatar);
-            userMap.put("id", user.id);
-            userMap.put("organization", user.owner);
-            userMap.put("roles", user.roles);
-            return userMap;
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", authHeader);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            ResponseEntity<Map> response = restTemplate.exchange(
+                casdoorEndpoint + "/api/userinfo",
+                HttpMethod.GET,
+                entity,
+                Map.class
+            );
+            return response.getBody();
+        } catch (HttpClientErrorException e) {
+            throw new ResponseStatusException(e.getStatusCode(), e.getStatusText());
         } catch (Exception e) {
-             throw new RuntimeException("SDK failed to parse token: " + e.getMessage());
+             throw new RuntimeException("Failed to fetch userinfo: " + e.getMessage());
         }
     }
 

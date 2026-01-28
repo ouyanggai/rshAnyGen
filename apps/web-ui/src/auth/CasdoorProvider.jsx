@@ -40,12 +40,16 @@ export default function CasdoorProvider({ children }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await api.post('/v1/auth/sso-logout');
+    } catch (e) {
+      console.error("SSO logout failed", e);
+    } finally {
       setAccessToken(null);
       setIsAuthenticated(false);
-      // Optional: Redirect to Casdoor logout
-      // if (config?.logout_url) window.location.href = config.logout_url;
-      window.location.href = "/"; 
+      window.location.href = "/";
+    }
   };
 
   return (

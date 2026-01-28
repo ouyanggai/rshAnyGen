@@ -42,10 +42,12 @@ dependencies:
     port: 6333
   casdoor:
     endpoint: "http://192.168.1.248:8000"
-    client_id: "2ce83193fbdd8973aa55"
-    client_secret: "d6d793bf1cb6af57f6a8cfdaa5808d8b1b023c79"
+    # client_id: "2ce83193fbdd8973aa55"
+    client_id: "1e27e696c8832ea6bf9f"
+    # client_secret: "d6d793bf1cb6af57f6a8cfdaa5808d8b1b023c79"
+    client_secret: "f2a12262d6116ec505b1d480dcd0eea78fe134d2"
     organization_name: "rsh"
-    application_name: "润小华"
+    application_name: "rshAnyGen"
     redirect_uri: "http://192.168.1.212:9300/callback"
 
 # LLM 默认配置

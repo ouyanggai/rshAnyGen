@@ -23,6 +23,7 @@ AUTHORIZE_URL = f"{CASDOOR_ENDPOINT}/login/oauth/authorize"
 TOKEN_URL = f"{CASDOOR_ENDPOINT}/api/login/oauth/access_token"
 USERINFO_URL = f"{CASDOOR_ENDPOINT}/api/userinfo" # OIDC compliant
 LOGOUT_URL = f"{CASDOOR_ENDPOINT}/api/logout"
+SSO_LOGOUT_URL = f"{CASDOOR_ENDPOINT}/api/sso-logout"
 
 
 class LoginRequest(BaseModel):
@@ -63,6 +64,39 @@ async def get_login_url(redirect_uri: str = REDIRECT_URI):
         f"&state=rshanygen" 
     )
     return {"login_url": auth_url}
+
+
+@router.get("/logout-url")
+async def get_logout_url(redirect_uri: Optional[str] = None):
+    """
+    获取登出 URL (Casdoor)
+    """
+    target_url = redirect_uri or REDIRECT_URI
+    
+    # 如果是回调地址，尝试去除 /callback 得到首页
+    if target_url.endswith("/callback"):
+        target_url = target_url[:-9]  # len("/callback") == 9
+
+    from urllib.parse import quote
+    encoded_redirect = quote(target_url, safe="")
+    
+    logout_url = f"{LOGOUT_URL}?post_logout_redirect_uri={encoded_redirect}"
+    return {"logout_url": logout_url}
+
+
+@router.post("/sso-logout")
+async def sso_logout(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.post(SSO_LOGOUT_URL, headers={"Authorization": auth_header})
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error(f"SSO logout failed: {e}")
+            raise HTTPException(status_code=400, detail="SSO logout failed")
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -110,20 +144,30 @@ async def get_userinfo(request: Request):
     """
     获取当前用户信息
     """
-    user = getattr(request.state, "user", None)
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Not authenticated"
-        )
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    return UserInfoResponse(
-        sub=user.get("user_id", ""),
-        username=user.get("username", ""),
-        email=user.get("email"),
-        name=user.get("name"),
-        roles=user.get("roles", []),
-    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(USERINFO_URL, headers={"Authorization": auth_header})
+            response.raise_for_status()
+            data = response.json()
+            return UserInfoResponse(
+                sub=str(data.get("id") or data.get("sub") or ""),
+                username=data.get("name") or data.get("username") or "",
+                email=data.get("email"),
+                name=data.get("displayName") or data.get("name"),
+                roles=data.get("roles") or [],
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
+            logger.error(f"Userinfo fetch failed: {e}")
+            raise HTTPException(status_code=e.response.status_code, detail="Failed to fetch userinfo")
+        except httpx.HTTPError as e:
+            logger.error(f"Userinfo fetch error: {e}")
+            raise HTTPException(status_code=503, detail="Authentication service unavailable")
 
 
 @router.get("/config")

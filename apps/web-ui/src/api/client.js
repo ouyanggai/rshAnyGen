@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getAccessToken } from '../auth/authStore';
+import { getAccessToken, setAccessToken } from '../auth/authStore';
 
 // API 基础配置
 const api = axios.create({
@@ -30,6 +30,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     console.error('API Error:', error);
+    if (error.response && error.response.status === 401) {
+      setAccessToken(null);
+      window.location.href = '/';
+    }
     return Promise.reject(error);
   }
 );
