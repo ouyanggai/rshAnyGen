@@ -1,2 +1,2 @@
 """路由模块"""
-from apps.gateway.routers import chat, skills
+from apps.gateway.routers import chat, skills, skill_sources

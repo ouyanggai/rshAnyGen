@@ -1,4 +1,12 @@
 """Skills Registry API 入口"""
+import asyncio
+import hashlib
+import json
+import shutil
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -6,6 +14,10 @@ from typing import Dict, Any, Optional
 
 from ..loader import SkillLoader
 from ..executor import SkillExecutor
+from ..git_utils import ensure_execution_type, git_clone, parse_skill_frontmatter
+from ..remote import list_skills_in_source
+from ..sources import DEFAULT_SOURCES, SkillSourcesService, SkillSourcesStore, normalize_repo_url
+from apps.shared.redis_client import RedisOperations
 
 
 # 创建 FastAPI 应用
@@ -27,6 +39,37 @@ app.add_middleware(
 # 初始化组件
 loader = SkillLoader()
 executor = SkillExecutor(loader=loader)
+redis = RedisOperations()
+
+# 统一的启用/禁用存储：禁用集合（默认全部启用）
+DISABLED_SKILLS_KEY = "skills_registry:disabled"
+SOURCE_SKILLS_CACHE_KEY = "skills_registry:source_skills"
+SOURCE_SKILLS_CACHE_TTL_SECONDS = 6 * 60 * 60  # 6h
+
+# 用户技能目录（可卸载/可写）
+_HERE = Path(__file__).resolve()
+# services/skills_registry/api/main.py -> api -> skills_registry -> services -> repo-root
+REPO_ROOT = _HERE.parents[3]
+USER_SKILLS_DIR = REPO_ROOT / "storage" / "skills"
+DELETED_SKILLS_DIR = REPO_ROOT / "storage" / ".deleted"
+SOURCES_CONFIG_PATH = REPO_ROOT / "storage" / "skill_sources.yaml"
+
+sources_service = SkillSourcesService(
+    store=SkillSourcesStore(SOURCES_CONFIG_PATH),
+    defaults=DEFAULT_SOURCES,
+)
+
+
+async def _is_enabled(skill_id: str) -> bool:
+    await redis.init()
+    disabled = await redis.smembers(DISABLED_SKILLS_KEY)
+    return str(skill_id) not in disabled
+
+
+def _source_cache_key(source_id: str, repo_url: str, ref: Optional[str], subdir: str) -> str:
+    raw = f"{source_id}|{repo_url}|{ref or ''}|{subdir}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return f"{SOURCE_SKILLS_CACHE_KEY}:{source_id}:{digest}"
 
 
 # 请求/响应模型
@@ -42,6 +85,7 @@ class SkillInfo(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
+    version: Optional[str] = None
     enabled: bool = True
     execution_type: str = "function"
 
@@ -61,6 +105,89 @@ class ExecutionResponse(BaseModel):
     executor: Optional[str] = None
 
 
+class ToggleSkillRequest(BaseModel):
+    enabled: bool
+
+
+class ToggleSourceRequest(BaseModel):
+    enabled: bool
+
+
+class SkillSourceInfo(BaseModel):
+    id: str
+    name: str
+    repo_url: str
+    subdir: str = "skills"
+    ref: Optional[str] = None
+    enabled: bool = True
+    builtin: bool = False
+    description: Optional[str] = None
+
+
+class SkillSourcesListResponse(BaseModel):
+    sources: list[SkillSourceInfo]
+
+
+class CreateSkillSourceRequest(BaseModel):
+    repo_url: str
+    name: Optional[str] = None
+    subdir: str = "skills"
+    ref: Optional[str] = None
+    id: Optional[str] = None
+    enabled: bool = True
+    description: Optional[str] = None
+
+
+class RemoteSkillInfo(BaseModel):
+    slug: str
+    id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    version: Optional[str] = None
+    execution_type: str = "prompt"
+    installed: bool = False
+    source_id: str
+
+
+class RemoteSkillsListResponse(BaseModel):
+    source: SkillSourceInfo
+    skills: list[RemoteSkillInfo]
+    cached: bool = False
+
+
+class InstallFromSourceRequest(BaseModel):
+    slug: str
+    overwrite: bool = False
+
+
+class InstallSkillRequest(BaseModel):
+    """从 Git 仓库安装 Skill（复制 SKILL.md + 相关文件到 storage/skills/）"""
+
+    repo_url: str
+    skill: str
+    subdir: str = "skills"
+    ref: Optional[str] = None
+    overwrite: bool = False
+
+
+class DeleteSkillResponse(BaseModel):
+    status: str
+    deleted_skill_id: str
+    moved_to: str
+
+
+def _infer_execution_type(skill_info: dict) -> str:
+    metadata = skill_info.get("metadata", {}) or {}
+    execution_type = metadata.get("execution_type")
+    if execution_type:
+        return str(execution_type)
+    api_file = skill_info.get("api_file")
+    if api_file and getattr(api_file, "exists", None) and api_file.exists():
+        return "function"
+    return "prompt"
+
+
 @app.get("/", tags=["Root"])
 async def root():
     """API 根路径"""
@@ -78,6 +205,8 @@ async def list_skills():
     返回系统中所有已注册的 Skills 列表及其元数据。
     """
     skills = loader.load_all_skills()
+    await redis.init()
+    disabled = await redis.smembers(DISABLED_SKILLS_KEY)
 
     result = []
     for name, info in skills.items():
@@ -87,11 +216,196 @@ async def list_skills():
             "title": metadata.get("title"),
             "description": metadata.get("description"),
             "category": metadata.get("category"),
-            "enabled": True,  # 暂时默认启用
-            "execution_type": metadata.get("execution_type", "function")
+            "version": metadata.get("version"),
+            "enabled": str(name) not in disabled,
+            "execution_type": _infer_execution_type(info)
         })
 
     return {"skills": result}
+
+
+@app.get("/api/v1/skill-sources", response_model=SkillSourcesListResponse, tags=["Sources"])
+async def list_skill_sources():
+    """获取已配置的 Skill Sources（包含内置默认源 + 用户自定义源）"""
+    sources = [s.to_dict() for s in sources_service.list_sources()]
+    return {"sources": sources}
+
+
+@app.post("/api/v1/skill-sources", response_model=SkillSourceInfo, tags=["Sources"])
+async def create_skill_source(request: CreateSkillSourceRequest):
+    """新增一个自定义 Source（git 仓库）"""
+    try:
+        src = sources_service.add_user_source(
+            repo_url=request.repo_url,
+            name=request.name,
+            subdir=request.subdir,
+            ref=request.ref,
+            source_id=request.id,
+            enabled=request.enabled,
+            description=request.description,
+        )
+        return src.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/skill-sources/{source_id}/toggle", response_model=SkillSourceInfo, tags=["Sources"])
+async def toggle_skill_source(source_id: str, request: ToggleSourceRequest):
+    """启用/禁用某个 Source（对内置源为覆盖配置，对自定义源为更新 enabled）"""
+    try:
+        src = sources_service.set_enabled(source_id, request.enabled)
+        return src.to_dict()
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/skill-sources/{source_id}", tags=["Sources"])
+async def delete_skill_source(source_id: str):
+    """删除某个 Source（内置源将被标记为禁用）"""
+    try:
+        sources_service.delete_source(source_id)
+        return {"status": "success", "source_id": source_id}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _get_source_skills_cached(source, refresh: bool) -> tuple[list[dict], bool]:
+    await redis.init()
+    cache_key = _source_cache_key(source.id, source.repo_url, source.ref, source.subdir)
+    if not refresh:
+        cached = redis.client.get(cache_key)
+        if cached:
+            try:
+                data = json.loads(cached)
+                if isinstance(data, dict) and isinstance(data.get("skills"), list):
+                    return data["skills"], True
+                if isinstance(data, list):
+                    return data, True
+            except Exception:
+                pass
+
+    items = await asyncio.to_thread(lambda: list_skills_in_source(source))
+    payload = {
+        "skills": items,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    redis.client.setex(cache_key, SOURCE_SKILLS_CACHE_TTL_SECONDS, json.dumps(payload, ensure_ascii=False))
+    return items, False
+
+
+@app.get("/api/v1/skill-sources/{source_id}/skills", response_model=RemoteSkillsListResponse, tags=["Sources"])
+async def list_source_skills(source_id: str, refresh: bool = False):
+    """列出某个 Source 下所有可安装的 skills（不安装，仅索引）。"""
+    try:
+        source = sources_service.get_source(source_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not source.enabled:
+        raise HTTPException(status_code=400, detail="Source 已禁用")
+
+    try:
+        items, cached = await _get_source_skills_cached(source, refresh=refresh)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    installed_ids = set(loader.load_all_skills().keys())
+    skills = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        skills.append(
+            {
+                "slug": str(it.get("slug") or ""),
+                "id": str(it.get("id") or ""),
+                "title": it.get("title"),
+                "description": it.get("description"),
+                "category": it.get("category"),
+                "version": it.get("version"),
+                "execution_type": str(it.get("execution_type") or "prompt"),
+                "installed": str(it.get("id") or "") in installed_ids,
+                "source_id": source.id,
+            }
+        )
+
+    return {"source": source.to_dict(), "skills": skills, "cached": cached}
+
+
+@app.get("/api/v1/skill-sources/skills", tags=["Sources"])
+async def list_all_source_skills(refresh: bool = False, enabled_only: bool = True):
+    """聚合所有 Sources 的 skills 列表（可能较慢；默认使用缓存）。"""
+    sources = sources_service.list_sources()
+    if enabled_only:
+        sources = [s for s in sources if s.enabled]
+
+    installed_ids = set(loader.load_all_skills().keys())
+
+    async def _one(s):
+        items, cached = await _get_source_skills_cached(s, refresh=refresh)
+        return s, items, cached
+
+    results = await asyncio.gather(*[_one(s) for s in sources], return_exceptions=True)
+
+    skills: list[dict] = []
+    errors: list[dict] = []
+    for r in results:
+        if isinstance(r, Exception):
+            errors.append({"error": str(r)})
+            continue
+        s, items, _cached = r
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            sid = str(it.get("id") or "")
+            skills.append(
+                {
+                    "slug": str(it.get("slug") or ""),
+                    "id": sid,
+                    "title": it.get("title"),
+                    "description": it.get("description"),
+                    "category": it.get("category"),
+                    "version": it.get("version"),
+                    "execution_type": str(it.get("execution_type") or "prompt"),
+                    "installed": sid in installed_ids,
+                    "source_id": s.id,
+                    "source_name": s.name,
+                }
+            )
+
+    return {"skills": skills, "errors": errors}
+
+
+@app.post("/api/v1/skill-sources/{source_id}/install", tags=["Sources"])
+async def install_skill_from_source(source_id: str, request: InstallFromSourceRequest):
+    """从某个 Source 一键安装指定 skill（slug 为源内相对路径）。"""
+    try:
+        source = sources_service.get_source(source_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not source.enabled:
+        raise HTTPException(status_code=400, detail="Source 已禁用")
+
+    payload = InstallSkillRequest(
+        repo_url=source.repo_url,
+        skill=request.slug,
+        subdir=source.subdir,
+        ref=source.ref,
+        overwrite=bool(request.overwrite),
+    )
+    return await install_skill(payload)
 
 
 @app.get("/api/v1/skills/{skill_id}", tags=["Skills"])
@@ -118,11 +432,129 @@ async def get_skill(skill_id: str):
         "description": metadata.get("description"),
         "category": metadata.get("category"),
         "version": metadata.get("version"),
-        "enabled": True,
-        "execution_type": metadata.get("execution_type", "function"),
+        "enabled": await _is_enabled(skill_id),
+        "execution_type": _infer_execution_type(skill_info),
         "path": skill_info.get("path"),
         "has_api": skill_info.get("api_file").exists() if skill_info.get("api_file") else False
     }
+
+
+@app.post("/api/v1/skills/{skill_id}/toggle", tags=["Skills"])
+async def toggle_skill(skill_id: str, request: ToggleSkillRequest):
+    """启用/禁用 Skill（持久化到 Redis）"""
+    skills = loader.load_all_skills()
+    if skill_id not in skills:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+
+    await redis.init()
+    if request.enabled:
+        await redis.srem(DISABLED_SKILLS_KEY, skill_id)
+    else:
+        await redis.sadd(DISABLED_SKILLS_KEY, skill_id)
+
+    # 返回更新后的 skill 信息
+    return await get_skill(skill_id)
+
+
+@app.post("/api/v1/skills/install", tags=["Skills"])
+async def install_skill(request: InstallSkillRequest):
+    """从 Git 仓库安装 Skill 到 storage/skills（不修改内置 skills）"""
+    USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _sync_copy() -> str:
+        repo_url = normalize_repo_url(request.repo_url)
+        skill_slug = (request.skill or "").strip().strip("/")
+        if not skill_slug:
+            raise ValueError("skill 不能为空")
+        subdir = (request.subdir or "skills").strip().strip("/")
+        if not subdir:
+            subdir = "skills"
+
+        with tempfile.TemporaryDirectory(prefix="skills_install_") as tmp:
+            tmp_repo = Path(tmp) / "repo"
+            git_clone(repo_url, tmp_repo, request.ref)
+
+            src_dir = (tmp_repo / subdir / skill_slug).resolve()
+            if not src_dir.exists() or not src_dir.is_dir():
+                raise ValueError(f"未找到技能目录: {subdir}/{skill_slug}")
+
+            skill_md = src_dir / "SKILL.md"
+            if not skill_md.exists():
+                raise ValueError("技能目录缺少 SKILL.md")
+
+            metadata = parse_skill_frontmatter(skill_md)
+            skill_id = (metadata.get("name") or "").strip()
+            if not skill_id:
+                raise ValueError("SKILL.md frontmatter 缺少 name")
+
+            dest_dir = (USER_SKILLS_DIR / skill_id).resolve()
+            if dest_dir.exists() and not request.overwrite:
+                raise ValueError(f"技能已存在: {skill_id}")
+
+            if dest_dir.exists() and request.overwrite:
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                backup_dir = (DELETED_SKILLS_DIR / f"{skill_id}__{ts}").resolve()
+                shutil.move(str(dest_dir), str(backup_dir))
+
+            shutil.copytree(src_dir, dest_dir, dirs_exist_ok=request.overwrite)
+            ensure_execution_type(dest_dir)
+
+            origin = {
+                "repo_url": request.repo_url,
+                "normalized_repo_url": repo_url,
+                "ref": request.ref,
+                "subdir": subdir,
+                "skill": skill_slug,
+                "installed_at": datetime.now(timezone.utc).isoformat(),
+            }
+            (dest_dir / "origin.json").write_text(
+                json.dumps(origin, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            return skill_id
+
+    try:
+        skill_id = await asyncio.to_thread(_sync_copy)
+        await redis.init()
+        await redis.srem(DISABLED_SKILLS_KEY, skill_id)
+        return await get_skill(skill_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/skills/{skill_id}", response_model=DeleteSkillResponse, tags=["Skills"])
+async def delete_skill(skill_id: str):
+    """卸载 Skill（仅允许卸载 storage/skills 下的用户技能）"""
+    skills = loader.load_all_skills()
+    info = skills.get(skill_id)
+    if not info:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+
+    path = Path(info.get("path") or "").resolve()
+    USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not path.is_relative_to(USER_SKILLS_DIR.resolve()):
+        raise HTTPException(status_code=403, detail="Built-in skills cannot be deleted")
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    moved_to = (DELETED_SKILLS_DIR / f"{skill_id}__{ts}").resolve()
+
+    try:
+        await asyncio.to_thread(lambda: shutil.move(str(path), str(moved_to)))
+        await redis.init()
+        await redis.srem(DISABLED_SKILLS_KEY, skill_id)
+        return {
+            "status": "success",
+            "deleted_skill_id": skill_id,
+            "moved_to": str(moved_to),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/v1/skills/{skill_id}/execute", response_model=ExecutionResponse, tags=["Execution"])
