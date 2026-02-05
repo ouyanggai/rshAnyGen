@@ -51,7 +51,7 @@ export default function KbModal({ isOpen, onClose, kb = null, onSuccess }) {
 
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-50">
-      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+      <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
 
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <Dialog.Panel className="mx-auto max-w-md w-full rounded-2xl bg-white dark:bg-bg-card-dark p-6 shadow-xl border border-border dark:border-border-dark">

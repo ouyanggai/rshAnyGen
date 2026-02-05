@@ -69,8 +69,8 @@ def route_after_intent(state: AgentState) -> str:
         # 这里暂时保留原有逻辑，或者直接去 llm_generator
         return "llm_generator" # 既然设计说未选择就是纯聊天
     else:
-        # chat or unknown
-        return "llm_generator"
+        # chat or unknown -> 尝试技能路由
+        return "skill_selector"
 
 
 def check_tool_approval(state: AgentState) -> str:

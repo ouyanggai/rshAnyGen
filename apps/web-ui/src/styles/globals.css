@@ -1,4 +1,4 @@
-/* ChatUI 样式 - @import 必须在最前面 */
+/* ChatUI Styles - Must be first */
 @import '../assets/fonts/fonts.css';
 @import '@chatui/core/dist/index.css';
 
@@ -6,347 +6,185 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    /* Zinc Palette (Light) */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%; /* Zinc 900 */
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%; /* Zinc 100 */
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Zinc Palette (Dark) */
+    --background: 240 10% 3.9%; /* Zinc 950 */
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
 /* ========================================
-   全局基础样式 - Soft UI Evolution
+   App Shell - Clean & Minimal
    ======================================== */
-
-* {
-  box-sizing: border-box;
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  background: hsl(var(--background));
+  min-height: 100vh;
 }
 
-html, body, #root {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  font-family: 'Work Sans', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  /* 改善文本渲染 */
-  text-rendering: optimizeLegibility;
-  -webkit-font-variant-ligatures: common-ligatures;
-  font-variant-ligatures: common-ligatures;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Outfit', sans-serif;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+/* Remove the old gradient pseudo-elements */
+.app-shell::before {
+  display: none;
 }
 
 /* ========================================
-   滚动条样式 - 精致优雅
+   ChatUI Overrides - Minimalist
    ======================================== */
+.ChatUI {
+  --color-primary: #007AFF; /* Keep generic blue for links */
+  --color-bg: transparent;
+  --color-card-bg: hsl(var(--card));
+  --color-text: hsl(var(--foreground));
+  --color-text-secondary: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --Composer-height: 52px;
+  --Composer-borderRadius: 0.75rem; /* 12px */
+}
 
+/* Messages - Clean Bubbles */
+.Message {
+  border-radius: 0.75rem !important;
+  box-shadow: none !important;
+  border: 1px solid transparent !important;
+}
+
+.Message--left {
+  background: hsl(var(--secondary)) !important; /* Gray bubble for AI */
+  color: hsl(var(--foreground)) !important;
+  border-bottom-left-radius: 2px !important;
+}
+
+.Message--right {
+  /* User bubble - Black in light mode, White in dark mode (via primary var) */
+  background: hsl(var(--primary)) !important; 
+  color: hsl(var(--primary-foreground)) !important;
+  border-bottom-right-radius: 2px !important;
+}
+
+.Message--right .Message-text {
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Input Area - Bordered & Clean */
+.Input {
+  border-radius: 0.75rem !important;
+  background: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--input)) !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+  transition: all 0.2s ease !important;
+}
+
+.Input:focus-within {
+  border-color: hsl(var(--ring)) !important;
+  box-shadow: 0 0 0 1px hsl(var(--ring)) !important;
+}
+
+/* Navbar - Glass */
+.Navbar {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+}
+
+.dark .Navbar {
+  background: rgba(9, 9, 11, 0.8) !important; /* Zinc 950 alpha */
+}
+
+/* ========================================
+   Component Classes
+   ======================================== */
+@layer components {
+  /* Apple-style Gradient Button (Requested by User) */
+  .btn-gradient {
+    @apply bg-gradient-to-r from-[#007AFF] to-[#00B388] text-white shadow-sm hover:shadow hover:opacity-90 transition-all duration-200;
+  }
+
+  /* Standard Components */
+  .surface {
+    @apply bg-card text-card-foreground border border-border;
+  }
+
+  .card {
+    @apply rounded-xl border border-border bg-card text-card-foreground shadow-sm;
+  }
+  
+  .card-hoverable {
+    @apply card hover:bg-accent/50 hover:border-accent-foreground/10 transition-colors cursor-pointer;
+  }
+
+  /* Typography Utilities */
+  .text-subtle {
+    @apply text-muted-foreground text-sm;
+  }
+}
+
+/* Scrollbar - Minimal */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: hsl(var(--muted-foreground) / 0.3);
   border-radius: 3px;
-  transition: background 200ms ease;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
-}
-
-/* 去除默认的 ugly focus outline，使用自定义的 ring */
-*:focus-visible {
-  outline: none;
-}
-
-/* 深色模式滚动条适配 */
-.dark ::-webkit-scrollbar-thumb {
-  background: #475569;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748B;
-}
-
-/* 深色模式全局样式 */
-.dark body {
-  background-color: #0F172A;
-  color: #F1F5F9;
-}
-
-/* ========================================
-   ChatUI 样式覆盖 - Soft UI Evolution
-   ======================================== */
-
-.ChatUI {
-  --color-primary: #2563EB;
-  --color-primary-light: #3B82F6;
-  --color-primary-dark: #1D4ED8;
-  --color-bg: #F8FAFC;
-  --color-card-bg: #FFFFFF;
-  --color-text: #0F172A;
-  --color-text-secondary: #475569;
-  --color-border: #E2E8F0;
-
-  /* 输入框改进 */
-  --Composer-height: 56px;
-  --Composer-borderRadius: 16px;
-}
-
-/* 消息气泡 - Soft UI */
-.Message {
-  border-radius: 16px !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
-  transition: all 200ms ease !important;
-}
-
-.Message--left {
-  border-bottom-left-radius: 4px !important;
-  background: #FFFFFF !important;
-}
-
-.Message--right {
-  border-bottom-right-radius: 4px !important;
-  background: #2563EB !important;
-  color: #FFFFFF !important;
-}
-
-.Message--right .Message-text {
-  color: #FFFFFF !important;
-}
-
-/* 输入框 - Elevated */
-.Input {
-  border-radius: 16px !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04) !important;
-  border: 1px solid #E2E8F0 !important;
-  transition: all 200ms ease !important;
-}
-
-.Input:focus-within {
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1), 0 2px 4px rgba(0,0,0,0.04) !important;
-  border-color: #2563EB !important;
-}
-
-/* 按钮样式 */
-.Button {
-  border-radius: 12px !important;
-  transition: all 200ms ease !important;
-  font-weight: 500 !important;
-}
-
-.Button--primary {
-  background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%) !important;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25) !important;
-}
-
-.Button--primary:hover {
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
-  transform: translateY(-1px) !important;
-}
-
-.Button--primary:active {
-  transform: translateY(0) !important;
-}
-
-/* 导航栏 */
-.Navbar {
-  background: rgba(255, 255, 255, 0.9) !important;
-  backdrop-filter: blur(12px) !important;
-  border-bottom: 1px solid #E2E8F0 !important;
-}
-
-/* ========================================
-   深色模式 - 高对比度
-   ======================================== */
-
-.dark {
-  --color-bg: #0F172A;
-  --color-card-bg: #1E293B;
-  --color-text: #F1F5F9;
-  --color-text-secondary: #94A3B8;
-  --color-border: #334155;
-}
-
-.dark body {
-  background-color: #0F172A;
-  color: #F1F5F9;
-}
-
-.dark .ChatUI {
-  --color-bg: #0F172A;
-  --color-card-bg: #1E293B;
-  --color-text: #F1F5F9;
-  --color-text-secondary: #94A3B8;
-  --color-border: #334155;
-}
-
-.dark .Message--left {
-  background: #1E293B !important;
-  color: #F1F5F9 !important;
-}
-
-.dark .Input {
-  background: #1E293B !important;
-  border-color: #334155 !important;
-  color: #F1F5F9 !important;
-}
-
-.dark .Navbar {
-  background: rgba(15, 23, 42, 0.9) !important;
-  border-bottom-color: #334155 !important;
-}
-
-/* ========================================
-   工具类 - Professional UI Components
-   ======================================== */
-
-@layer components {
-  /* 卡片组件 - Dimensional Layering */
-  .card {
-    @apply bg-white rounded-xl border border-border shadow-elevation-1;
-    @apply transition-all duration-200;
-  }
-
-  .card-hoverable {
-    @apply card cursor-pointer;
-  }
-
-  .card-hoverable:hover {
-    @apply shadow-elevation-3 scale-[1.01];
-  }
-
-  /* 按钮组件 */
-  .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium;
-    @apply transition-all duration-200 cursor-pointer;
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2;
-  }
-
-  .btn-primary {
-    @apply bg-primary hover:bg-primary-700 text-white;
-    @apply shadow-glow-sm hover:shadow-glow-md;
-  }
-
-  .btn-primary:active {
-    @apply scale-[0.98];
-  }
-
-  .btn-secondary {
-    @apply bg-bg-tertiary hover:bg-gray-200 text-text-primary;
-    @apply border border-border;
-  }
-
-  .btn-ghost {
-    @apply bg-transparent hover:bg-bg-tertiary text-text-secondary;
-  }
-
-  /* 输入框组件 */
-  .input {
-    @apply w-full px-4 py-2.5 bg-white border border-border rounded-lg;
-    @apply text-text-primary placeholder:text-text-muted;
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary;
-    @apply transition-all duration-200;
-  }
-
-  .input-dark {
-    @apply bg-bg-tertiary;
-  }
-
-  /* 状态指示器 */
-  .status-dot {
-    @apply w-2 h-2 rounded-full;
-  }
-
-  .status-online {
-    @apply bg-green-500;
-  }
-
-  .status-offline {
-    @apply bg-gray-400;
-  }
-
-  .status-busy {
-    @apply bg-red-500;
-  }
-
-  /* 徽章 */
-  .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
-  }
-
-  .badge-primary {
-    @apply bg-primary/10 text-primary;
-  }
-
-  .badge-success {
-    @apply bg-green-100 text-green-700;
-  }
-
-  .badge-warning {
-    @apply bg-yellow-100 text-yellow-700;
-  }
-
-  .badge-error {
-    @apply bg-red-100 text-red-700;
-  }
-
-  /* 分隔线 */
-  .divider {
-    @apply border-t border-border;
-  }
-
-  /* Avatar 占位符 */
-  .avatar-placeholder {
-    @apply w-full h-full rounded-full flex items-center justify-center;
-    @apply bg-gradient-to-br from-primary-400 to-primary-600;
-    @apply text-white font-semibold;
-  }
-}
-
-/* ========================================
-   可访问性 - Focus Visible
-   ======================================== */
-
-@layer utilities {
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2;
-  }
-
-  .focus-ring-inset {
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-inset;
-  }
-}
-
-/* ========================================
-   动画优化
-   ======================================== */
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* ========================================
-   打印样式
-   ======================================== */
-
-@media print {
-  .no-print {
-    display: none !important;
-  }
-
-  body {
-    background: white !important;
-    color: black !important;
-  }
+  background: hsl(var(--muted-foreground) / 0.5);
 }

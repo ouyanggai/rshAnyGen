@@ -19,6 +19,10 @@ class UpdateSessionRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
 
 
+class UpdateSessionKbRequest(BaseModel):
+    kb_ids: list[str] = Field(default_factory=list)
+
+
 @router.get("")
 async def list_sessions(req: Request, limit: int = 50):
     user = req.state.user
@@ -76,7 +80,19 @@ async def update_session(req: Request, session_id: str, body: UpdateSessionReque
     session = await service.get_session(session_id)
     if not session or session.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=404, detail="Session not found")
-    await service.update_title(session_id, body.title)
+    await service.update_title(session_id, body.title, source="user")
+    updated = await service.get_session(session_id)
+    return {"status": "ok", "session": updated}
+
+
+@router.patch("/{session_id}/kb")
+async def update_session_kb(req: Request, session_id: str, body: UpdateSessionKbRequest):
+    user = req.state.user
+    service = SessionService()
+    session = await service.get_session(session_id)
+    if not session or session.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await service.update_kb_ids(session_id, body.kb_ids)
     return {"status": "ok"}
 
 
@@ -89,4 +105,3 @@ async def list_messages(req: Request, session_id: str, limit: int = 50):
         raise HTTPException(status_code=404, detail="Session not found")
     message_service = MessageService()
     return await message_service.list_messages(session_id, limit=limit)
-

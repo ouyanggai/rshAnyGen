@@ -25,6 +25,8 @@ class SkillInfo(BaseModel):
     enabled: bool
     requires_consent: bool
     category: Optional[str] = None
+    version: Optional[str] = None
+    execution_type: Optional[str] = None
 
 class SkillListResponse(BaseModel):
     """技能列表响应"""

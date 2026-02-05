@@ -22,6 +22,20 @@ class MCPManager:
         self.logger = self.log_manager.get_logger()
         self.config = self._load_config(config_path)
 
+    def _parse_jsonrpc_result(self, response: Any) -> dict:
+        """将 JSON-RPC 响应规范化为 result dict（遇到 error 直接抛错）"""
+        if not isinstance(response, dict):
+            raise ValueError("Invalid JSON-RPC response type")
+
+        if response.get("error"):
+            err = response.get("error") or {}
+            code = err.get("code")
+            msg = err.get("message") or "Unknown MCP error"
+            raise RuntimeError(f"MCP error {code}: {msg}")
+
+        result = response.get("result")
+        return result if isinstance(result, dict) else {}
+
     def _load_config(self, path: str) -> dict:
         """
         加载 MCP 配置
@@ -36,13 +50,23 @@ class MCPManager:
         from pathlib import Path
 
         config_path = Path(path)
+        if not config_path.is_absolute() and not config_path.exists():
+            # 兼容：调用方 CWD 不在项目根目录时，尝试按 repo-root 解析
+            try:
+                repo_root = Path(__file__).resolve().parents[2]
+                candidate = repo_root / config_path
+                if candidate.exists():
+                    config_path = candidate
+            except Exception:
+                pass
+
         if not config_path.exists():
-            self.logger.warning(f"Config file not found: {path}, using empty config")
+            self.logger.warning(f"Config file not found: {config_path}, using empty config")
             return {"servers": {}}
 
         with open(config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f) or {}
-            self.logger.info(f"Loaded MCP config from {path}")
+            self.logger.info(f"Loaded MCP config from {config_path}")
             return config
 
     async def discover_servers(self) -> List[str]:
@@ -86,6 +110,11 @@ class MCPManager:
 
             if await client.connect():
                 self.connections[server_name] = client
+                # MCP 推荐握手（部分 server 可能依赖 initialize 才能 tools/list）
+                try:
+                    await client.send_request("initialize", {})
+                except Exception as e:
+                    self.logger.warning(f"Initialize failed for {server_name}: {e}")
                 self.logger.info(f"Successfully connected to {server_name}")
                 return True
             else:
@@ -116,8 +145,9 @@ class MCPManager:
             return []
 
         try:
-            result = await client.send_request("tools/list", {})
-            tools = result.get("tools", [])
+            response = await client.send_request("tools/list", {})
+            result = self._parse_jsonrpc_result(response)
+            tools = result.get("tools", []) if isinstance(result.get("tools"), list) else []
             self.tools_cache[server_name] = tools
             self.logger.info(f"Listed {len(tools)} tools from {server_name}")
             return tools
@@ -154,11 +184,11 @@ class MCPManager:
 
         try:
             self.logger.info(f"Calling tool {tool} on {server} with args: {args}")
-            result = await client.send_request("tools/call", {
+            response = await client.send_request("tools/call", {
                 "name": tool,
                 "arguments": args
             })
-            return result
+            return self._parse_jsonrpc_result(response)
         except Exception as e:
             self.logger.error(f"Error calling tool {tool} on {server}: {e}")
             return {"error": str(e)}

@@ -201,9 +201,9 @@ export default function KnowledgeBase() {
   };
 
   return (
-    <div className="flex h-full bg-bg-primary dark:bg-bg-dark overflow-hidden">
+    <div className="flex h-full bg-transparent overflow-hidden">
       {/* Sidebar - KB List */}
-      <div className="w-64 border-r border-border dark:border-border-dark flex flex-col bg-white dark:bg-bg-card-dark">
+      <div className="w-72 border-r border-border dark:border-border-dark flex flex-col bg-white dark:bg-bg-card-dark">
         <div className="p-4 border-b border-border dark:border-border-dark flex justify-between items-center">
           <h2 className="font-semibold text-text-primary dark:text-text-primary-dark">知识库列表</h2>
           <button 
@@ -221,9 +221,9 @@ export default function KnowledgeBase() {
               key={kb.kb_id}
               onClick={() => setSelectedKb(kb)}
               className={`
-                group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all
+                group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors border border-transparent
                 ${selectedKb?.kb_id === kb.kb_id 
-                  ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-400' 
+                  ? 'bg-bg-tertiary text-text-primary dark:bg-white/5 dark:text-text-primary-dark border-border/60 dark:border-border-dark/60' 
                   : 'text-text-secondary dark:text-text-secondary-dark hover:bg-bg-tertiary dark:hover:bg-white/5'
                 }
               `}
@@ -287,8 +287,8 @@ export default function KnowledgeBase() {
                 className={`
                   relative border-2 border-dashed rounded-xl p-8 mb-6 transition-all duration-200
                   ${isDragging
-                    ? 'border-primary bg-primary/5 scale-[1.01]'
-                    : 'border-border dark:border-border-dark hover:border-primary/50 bg-white/50 dark:bg-bg-card-dark/50'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border dark:border-border-dark hover:border-primary/40 bg-white dark:bg-bg-card-dark'
                   }
                 `}
               >
@@ -313,7 +313,7 @@ export default function KnowledgeBase() {
                 </label>
 
                 {uploadProgress && (
-                  <div className="absolute inset-0 bg-white/95 dark:bg-bg-card-dark/95 flex flex-col items-center justify-center rounded-xl z-10 backdrop-blur-sm">
+                  <div className="absolute inset-0 bg-white dark:bg-bg-card-dark flex flex-col items-center justify-center rounded-xl z-10">
                     <div className="w-48 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden mb-3">
                       <div 
                         className="h-full bg-primary transition-all duration-300"
@@ -329,7 +329,7 @@ export default function KnowledgeBase() {
 
               {/* Documents Table */}
               <div className="bg-white dark:bg-bg-card-dark rounded-xl border border-border dark:border-border-dark shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-border dark:border-border-dark flex justify-between items-center bg-gray-50/50 dark:bg-white/5">
+                <div className="px-6 py-4 border-b border-border dark:border-border-dark flex justify-between items-center bg-bg-primary dark:bg-bg-dark">
                   <h3 className="font-semibold text-text-primary dark:text-text-primary-dark">
                     文档列表 ({documents.length})
                   </h3>

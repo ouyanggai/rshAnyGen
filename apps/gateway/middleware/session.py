@@ -2,7 +2,6 @@
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 import redis
-import uuid
 from typing import Callable
 
 from apps.shared.config_loader import ConfigLoader
@@ -44,19 +43,15 @@ class SessionMiddleware(BaseHTTPMiddleware):
 
         # 从请求头获取 session_id
         session_id = request.headers.get("X-Session-ID")
-
-        # 如果没有 session_id，生成新的
-        if not session_id:
-            session_id = f"sess-{uuid.uuid4().hex[:12]}"
-
-        # 将 session_id 添加到请求状态
         request.state.session_id = session_id
+        request.state.session_id_from_header = bool(session_id)
 
         # 处理请求
         response = await call_next(request)
 
-        # 将 session_id 返回给客户端
-        response.headers["X-Session-ID"] = session_id
+        # 将 session_id 返回给客户端（避免覆盖业务响应中已设置的值）
+        if session_id and "X-Session-ID" not in response.headers:
+            response.headers["X-Session-ID"] = session_id
 
         return response
 

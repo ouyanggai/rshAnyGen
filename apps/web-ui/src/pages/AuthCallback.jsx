@@ -45,8 +45,8 @@ export default function AuthCallback() {
   }, [searchParams, navigate, setAccessToken]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-primary dark:bg-bg-dark">
-      <div className="text-center">
+    <div className="min-h-screen app-shell flex items-center justify-center">
+      <div className="relative z-10 text-center">
         <div className="text-lg font-semibold text-text-primary dark:text-text-primary-dark mb-2">
           正在登录...
         </div>

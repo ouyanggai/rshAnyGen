@@ -6,6 +6,7 @@ from apps.shared.redis_client import RedisOperations
 from apps.shared.token_counter import get_token_counter
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
+from apps.shared.metrics import PerformanceMetrics
 
 config = ConfigLoader()
 logger_manager = LogManager("context_builder")
@@ -65,34 +66,56 @@ class ContextBuilder:
 
         context = []
         total_tokens = 0
+        user_memory_tokens = 0
+        semantic_memory_tokens = 0
+        summary_tokens = 0
+        working_tokens = 0
+        budget = self.token_counter.get_token_budget()
 
         # === 第一层: 长期记忆 (用户画像) ===
-        user_memory = await self._build_user_memory(user_id)
+        user_memory = await self._build_user_memory(user_id, max_tokens=budget.get("long_term", 0))
         if user_memory:
             context.append(user_memory)
-            total_tokens += self.token_counter.count_message(user_memory)
-            logger.debug(f"User memory added: {self.token_counter.count_message(user_memory)} tokens")
+            user_memory_tokens = self.token_counter.count_message(user_memory)
+            total_tokens += user_memory_tokens
+            logger.debug(f"User memory added: {user_memory_tokens} tokens")
+
+        semantic_memory_budget = max(budget.get("long_term", 0) - total_tokens, 0)
+        semantic_memory = await self._build_semantic_memory(
+            user_id,
+            current_message,
+            max_tokens=semantic_memory_budget
+        )
+        if semantic_memory:
+            context.append(semantic_memory)
+            semantic_memory_tokens = self.token_counter.count_message(semantic_memory)
+            total_tokens += semantic_memory_tokens
+            logger.debug(f"Semantic memory added: {semantic_memory_tokens} tokens")
 
         # === 第二层: 短期摘要 ===
-        summary = await self._get_session_summary(session_id)
+        summary = await self._get_session_summary(session_id, max_tokens=budget.get("short_term", 0))
         if summary:
             summary_msg = {
                 "role": "system",
                 "content": f"【对话摘要】\n{summary}"
             }
             context.append(summary_msg)
-            total_tokens += self.token_counter.count_message(summary_msg)
-            logger.debug(f"Summary added: {self.token_counter.count_message(summary_msg)} tokens")
+            summary_tokens = self.token_counter.count_message(summary_msg)
+            total_tokens += summary_tokens
+            logger.debug(f"Summary added: {summary_tokens} tokens")
 
         # === 第三层: 工作记忆 ===
-        working_memory = await self._build_working_memory(session_id)
-        if working_memory:
-            context.extend(working_memory)
-            working_tokens = sum(
-                self.token_counter.count_message(msg) for msg in working_memory
-            )
-            total_tokens += working_tokens
-            logger.debug(f"Working memory added: {len(working_memory)} messages, {working_tokens} tokens")
+        remaining_for_working = budget.get("available_for_context", 0) - total_tokens
+        working_budget = min(WORKING_MEMORY_MAX_TOKENS, max(remaining_for_working, 0))
+        if working_budget > 0:
+            working_memory = await self._build_working_memory(session_id, max_tokens=working_budget)
+            if working_memory:
+                context.extend(working_memory)
+                working_tokens = sum(
+                    self.token_counter.count_message(msg) for msg in working_memory
+                )
+                total_tokens += working_tokens
+                logger.debug(f"Working memory added: {len(working_memory)} messages, {working_tokens} tokens")
 
         # === 第四层: 当前消息 ===
         current_msg = {"role": "user", "content": current_message}
@@ -102,12 +125,19 @@ class ContextBuilder:
         logger.info(
             f"Context built: {len(context)} messages, {total_tokens} total tokens "
             f"(user_memory: {bool(user_memory)}, summary: {bool(summary)}, "
-            f"working_memory: {len(working_memory)} messages)"
+            f"working_memory: {len(working_memory) if 'working_memory' in locals() else 0} messages)"
         )
+
+        try:
+            await PerformanceMetrics.record_metric("context:token_budget", total_tokens)
+            layer_ratio = (working_tokens / total_tokens) * 100 if total_tokens else 0
+            await PerformanceMetrics.record_metric("context:layer_usage", layer_ratio)
+        except Exception as e:
+            logger.error(f"Failed to record context metrics: {e}")
 
         return context
 
-    async def _build_user_memory(self, user_id: str) -> Optional[Dict]:
+    async def _build_user_memory(self, user_id: str, max_tokens: int = 200) -> Optional[Dict]:
         """构建用户画像记忆"""
         user_info = await self.redis.hgetall(f"user:{user_id}")
         if not user_info:
@@ -141,9 +171,15 @@ class ContextBuilder:
         if len(content_parts) == 1:
             return None
 
+        content = "\n".join(content_parts)
+        if max_tokens > 0:
+            content = self._trim_content_to_tokens(content, max_tokens)
+        if not content:
+            return None
+
         return {
             "role": "system",
-            "content": "\n".join(content_parts)
+            "content": content
         }
 
     async def _get_user_entities(
@@ -176,7 +212,7 @@ class ContextBuilder:
 
         return entities[:limit]
 
-    async def _get_session_summary(self, session_id: str) -> Optional[str]:
+    async def _get_session_summary(self, session_id: str, max_tokens: int = 500) -> Optional[str]:
         """获取会话摘要"""
         summaries = await self.redis.lrange_json(
             f"session:summaries:{session_id}",
@@ -195,9 +231,12 @@ class ContextBuilder:
             if topic and summary:
                 summary_parts.append(f"[{topic}] {summary}")
 
-        return "\n".join(summary_parts) if summary_parts else None
+        summary_text = "\n".join(summary_parts) if summary_parts else None
+        if summary_text and max_tokens > 0:
+            summary_text = self._trim_content_to_tokens(summary_text, max_tokens)
+        return summary_text or None
 
-    async def _build_working_memory(self, session_id: str) -> List[Dict]:
+    async def _build_working_memory(self, session_id: str, max_tokens: int = WORKING_MEMORY_MAX_TOKENS) -> List[Dict]:
         """构建工作记忆"""
         all_messages = await self.redis.lrange_json(
             f"session:messages:{session_id}",
@@ -215,11 +254,54 @@ class ContextBuilder:
         # 使用 token counter 裁剪到符合限制
         working_memory = self.token_counter.trim_messages_to_limit(
             all_messages,
-            max_tokens=WORKING_MEMORY_MAX_TOKENS,
+            max_tokens=max_tokens,
             min_messages=WORKING_MEMORY_MIN_TURNS * 2
         )
 
         return working_memory
+
+    async def _build_semantic_memory(
+        self,
+        user_id: str,
+        current_message: str,
+        max_tokens: int = 200
+    ) -> Optional[Dict]:
+        if max_tokens <= 0:
+            return None
+        try:
+            from apps.orchestrator.services.memory_service import MemoryService
+            service = MemoryService()
+            memories = await service.retrieve_relevant_memories(user_id, current_message, limit=5)
+            if not memories:
+                return None
+            memory_lines = []
+            for item in memories:
+                content = item.get("content")
+                if content:
+                    memory_lines.append(content)
+            if not memory_lines:
+                return None
+            content = "【长期记忆】\n" + "\n".join(memory_lines)
+            content = self._trim_content_to_tokens(content, max_tokens)
+            if not content:
+                return None
+            return {"role": "system", "content": content}
+        except Exception as e:
+            logger.error(f"Semantic memory build failed: {e}")
+            return None
+
+    def _trim_content_to_tokens(self, content: str, max_tokens: int) -> str:
+        if not content or max_tokens <= 0:
+            return ""
+        if self.token_counter.count_text(content) <= max_tokens:
+            return content
+        rough_limit = max_tokens * 4
+        trimmed = content[:rough_limit]
+        if self.token_counter.count_text(trimmed) <= max_tokens:
+            return trimmed
+        while trimmed and self.token_counter.count_text(trimmed) > max_tokens:
+            trimmed = trimmed[: int(len(trimmed) * 0.9)]
+        return trimmed
 
     async def estimate_context_tokens(
         self,

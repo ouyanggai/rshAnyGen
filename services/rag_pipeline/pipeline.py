@@ -34,11 +34,11 @@ class RAGPipeline:
         self.retriever = Retriever(config)
 
         # Initialize reranker
-        rerank_config = config.get("reranker", {})
+        rerank_config = self.config.get("reranker", {})
         if rerank_config.get("enabled", False):
-            self.reranker = Reranker(config)
+            self.reranker = Reranker(self.config)
         else:
-            self.reranker = NoOpReranker(config)
+            self.reranker = NoOpReranker(self.config)
 
         # Get collection name
         vector_db_config = self.config.get("vector_db", self.config)

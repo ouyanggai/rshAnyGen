@@ -10,7 +10,8 @@ NC='\033[0m'
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-echo -e "${GREEN}=== rshAnyGen 本地开发环境启动（Python + Node）===${NC}"
+echo -e "${GREEN}=== rshAnyGen 本地开发环境启动（Python + Node）==="
+echo -e "${YELLOW}包含服务: Gateway, Orchestrator, Skills, RAG, WebUI, 后台任务处理器${NC}"
 
 mkdir -p logs/{gateway,orchestrator,skills,rag,webui} logs/pids
 
@@ -58,7 +59,7 @@ start_python_module() {
   local log="logs/${name}/${name}.log"
   free_port "$port"
   echo -e "${YELLOW}启动 ${name} (${module})，端口 ${port}...${NC}"
-  bash -c "source venv/bin/activate && PYTHONPATH=. python -m ${module}" &
+  bash -c "source venv/bin/activate && export PYTHONPATH=. && exec python -m ${module}" > "$log" 2>&1 &
   local pid=$!
   echo "$pid" > "logs/pids/${name}.pid"
   echo -e "${GREEN}${name} 启动完成 (PID: $pid)，日志: $log${NC}"
@@ -71,7 +72,7 @@ start_uvicorn_app() {
   local log="logs/${name}/${name}.log"
   free_port "$port"
   echo -e "${YELLOW}启动 ${name} (uvicorn ${app_ref})，端口 ${port}...${NC}"
-  bash -c "source venv/bin/activate && PYTHONPATH=. uvicorn ${app_ref} --host 0.0.0.0 --port ${port}" &
+  bash -c "source venv/bin/activate && export PYTHONPATH=. && exec uvicorn ${app_ref} --host 0.0.0.0 --port ${port}" > "$log" 2>&1 &
   local pid=$!
   echo "$pid" > "logs/pids/${name}.pid"
   echo -e "${GREEN}${name} 启动完成 (PID: $pid)，日志: $log${NC}"
@@ -88,7 +89,7 @@ start_web_ui() {
   fi
   BACKEND_GATEWAY="http://localhost:${PORT_GATEWAY}" \
   BACKEND_ORCHESTRATOR="http://localhost:${PORT_ORCH}" \
-  npm run dev -- --port "${port}" --host &
+  npm run dev -- --port "${port}" --host > "${PROJECT_ROOT}/${log}" 2>&1 &
   local pid=$!
   echo "$pid" > "${PROJECT_ROOT}/logs/pids/webui.pid"
   popd > /dev/null
@@ -96,10 +97,20 @@ start_web_ui() {
 }
 
 echo -e "${YELLOW}启动后端服务...${NC}"
-start_python_module "gateway" "apps.gateway.main" "$PORT_GATEWAY"
-start_python_module "orchestrator" "apps.orchestrator.main" "$PORT_ORCH"
+# 先启动被依赖的服务，减少 Gateway 冷启动时出现 503
 start_uvicorn_app "skills" "services.skills_registry.api.main:app" "$PORT_SKILLS"
 start_uvicorn_app "rag" "services.rag_pipeline.server:app" "$PORT_RAG"
+start_python_module "orchestrator" "apps.orchestrator.main" "$PORT_ORCH"
+start_python_module "gateway" "apps.gateway.main" "$PORT_GATEWAY"
+
+# 等待1秒让Orchestrator启动完成
+sleep 1
+
+# 启动后台任务处理器（独立进程 - 处理摘要生成、记忆提取等）
+echo -e "${YELLOW}启动后台任务处理器（长期记忆系统）...${NC}"
+bash -c "source venv/bin/activate && python start_background_tasks.py > logs/orchestrator/background_tasks.log 2>&1" &
+echo "$!" > "logs/pids/background_tasks.pid"
+echo -e "${GREEN}后台任务处理器 启动完成，日志: logs/orchestrator/background_tasks.log${NC}"
 
 echo -e "${YELLOW}启动前端 Web UI...${NC}"
 start_web_ui "$PORT_WEBUI"
@@ -111,6 +122,7 @@ echo -e "Gateway:       ${GREEN}http://localhost:${PORT_GATEWAY}${NC}   [健康�
 echo -e "Orchestrator:  ${GREEN}http://localhost:${PORT_ORCH}${NC}      [健康检查: /health]"
 echo -e "Skills API:    ${GREEN}http://localhost:${PORT_SKILLS}${NC}    [健康检查: /api/v1/health]"
 echo -e "RAG Pipeline:  ${GREEN}http://localhost:${PORT_RAG}${NC}       [健康检查: /api/v1/health]"
+echo -e "Background Tasks: ${GREEN}独立进程${NC}       [处理: 摘要生成、记忆提取]"
 echo ""
 echo -e "${YELLOW}日志路径: logs/<service>/*.log${NC}"
 echo -e "${YELLOW}PID 文件: logs/pids/<service>.pid${NC}"

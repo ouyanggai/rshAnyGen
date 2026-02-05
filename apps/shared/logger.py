@@ -24,7 +24,9 @@ class LogManager:
         self.logger.handlers.clear()
 
         # 控制台输出
-        console_handler = logging.StreamHandler(sys.stdout)
+        # 注意：部分子进程（如 MCP stdio server）需要保持 stdout 纯净用于协议通信，
+        # 因此统一将日志输出到 stderr。
+        console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(logging.INFO)
 
         # 文件输出（按日期）

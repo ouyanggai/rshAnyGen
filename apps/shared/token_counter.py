@@ -112,15 +112,62 @@ class TokenCounter:
 
     def estimate_response_tokens(self, prompt_tokens: int, max_response: int = 2000) -> int:
         """估算完整对话的 token 数
-
+        
         Args:
             prompt_tokens: 提示词 token 数
             max_response: 最大响应 token 数
-
+            
         Returns:
             估算的总 token 数
         """
-        return prompt_tokens + max_response
+        # 简单估算：通常回答是问题的 0.5 倍，但不能超过 max_response
+        estimated_output = min(int(prompt_tokens * 0.5), max_response)
+        return prompt_tokens + estimated_output
+
+    def get_token_budget(
+        self,
+        max_output_tokens: int = 2000
+    ) -> Dict[str, int]:
+        """获取模型的Token预算分配
+        
+        策略:
+        - 长期记忆: 10%
+        - 短期摘要: 20%
+        - 工作记忆: 70%
+        """
+        # 模型上下文上限
+        model_limits = {
+            "qwen-max": 30000,
+            "qwen-plus": 30000,
+            "qwen-turbo": 30000,
+            "gpt-4": 8192,
+            "gpt-3.5-turbo": 16384,
+            "gpt-4o": 128000,
+        }
+        
+        context_limit = model_limits.get(self.model, 8192)
+        
+        # 可用于上下文的额度 = 总上限 - 输出预留 - 安全缓冲
+        available = context_limit - max_output_tokens - 100
+        
+        if available < 1000:
+            # 如果可用额度太小，保底分配
+            return {
+                "total": context_limit,
+                "available_for_context": available,
+                "long_term": 0,
+                "short_term": 0,
+                "working": available
+            }
+        
+        return {
+            "total": context_limit,
+            "available_for_context": available,
+            "long_term": int(available * 0.1),      # 10%
+            "short_term": int(available * 0.2),     # 20%
+            "working": int(available * 0.7),        # 70%
+        }
+
 
 
 # 全局实例缓存

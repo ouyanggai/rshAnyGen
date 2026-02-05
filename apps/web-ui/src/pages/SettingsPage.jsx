@@ -81,15 +81,19 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="h-full p-6 overflow-y-auto bg-bg-primary dark:bg-bg-dark transition-colors duration-300">
+    <div className="h-full p-6 overflow-y-auto bg-transparent transition-colors duration-300">
       <div className="max-w-3xl mx-auto">
         <h2 className="text-2xl font-heading font-semibold mb-6 text-text-primary dark:text-text-primary-dark">设置</h2>
 
         {/* 当前用户信息 */}
-        <div className="card p-6 mb-6 bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark shadow-elevation-1 rounded-2xl">
+        <div className="card p-6 mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-light to-primary flex items-center justify-center text-white font-bold text-2xl shadow-glow-sm">
-              {user?.name?.charAt(0) || 'U'}
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary p-[1px]">
+              <div className="w-full h-full rounded-full bg-white dark:bg-bg-card-dark flex items-center justify-center">
+                <span className="font-heading font-semibold text-2xl text-text-primary dark:text-text-primary-dark">
+                  {user?.name?.charAt(0) || 'U'}
+                </span>
+              </div>
             </div>
             <div>
               <h3 className="text-lg font-semibold text-text-primary dark:text-text-primary-dark">{user?.name || '用户'}</h3>
@@ -107,7 +111,7 @@ export default function SettingsPage() {
               <section.icon className="w-5 h-5 text-text-muted dark:text-text-secondary-dark" />
               <h3 className="font-semibold text-text-primary dark:text-text-primary-dark">{section.title}</h3>
             </div>
-            <div className="bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark rounded-2xl divide-y divide-border dark:divide-border-dark shadow-elevation-1 overflow-hidden">
+            <div className="surface rounded-2xl divide-y divide-border/60 dark:divide-border-dark/60 overflow-hidden">
               {section.items.map((item, index) => (
                 <div
                   key={index}

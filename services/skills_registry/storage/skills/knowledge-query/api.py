@@ -16,6 +16,7 @@ def invoke(args: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """
     query = args.get("query", "")
     top_k = args.get("top_k", 5)
+    kb_ids = context.get("kb_ids") or args.get("kb_ids") or None
 
     # 参数验证
     if not query:
@@ -24,29 +25,51 @@ def invoke(args: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     if top_k < 1 or top_k > 10:
         top_k = min(max(top_k, 1), 10)
 
-    # TODO: 连接实际的 RAG Pipeline
-    # 这里返回模拟数据
-    # 实际实现应该：
-    # 1. 连接向量数据库
-    # 2. 执行相似度检索
-    # 3. 返回最相关的文档
+    # 调用 RAG Pipeline
+    try:
+        import httpx
+        from apps.shared.config_loader import ConfigLoader
 
-    mock_results = [
-        {
-            "doc_id": f"doc-{i}",
-            "title": f"相关文档 {i}",
-            "content": f"这是关于 '{query}' 的文档内容片段 {i}...",
-            "score": 0.95 - (i * 0.05),
-            "metadata": {
-                "source": "internal_kb",
-                "last_updated": "2024-01-01"
-            }
+        config = ConfigLoader().load_defaults()
+        port = config.get("ports", {}).get("rag_pipeline", 9305)
+        base_url = f"http://localhost:{port}"
+
+        payload = {"query": query, "top_k": top_k, "rerank": True, "kb_ids": kb_ids}
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{base_url}/api/v1/search", json=payload)
+            resp.raise_for_status()
+            raw_results = resp.json() or []
+
+        results = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            chunk_id = item.get("chunk_id")
+            content = item.get("content")
+            results.append(
+                {
+                    "doc_id": chunk_id,
+                    "title": metadata.get("title") or metadata.get("source") or chunk_id,
+                    "content": content,
+                    "score": item.get("score", 0),
+                    "metadata": metadata,
+                }
+            )
+
+        return {
+            "results": results,
+            "total": len(results),
+            "query": query,
+            "kb_ids": kb_ids or [],
         }
-        for i in range(min(top_k, 3))
-    ]
 
-    return {
-        "results": mock_results,
-        "total": len(mock_results),
-        "query": query
-    }
+    except Exception as e:
+        # 不中断主流程：返回可解释的错误信息给上层 LLM
+        return {
+            "results": [],
+            "total": 0,
+            "query": query,
+            "kb_ids": kb_ids or [],
+            "error": str(e),
+        }

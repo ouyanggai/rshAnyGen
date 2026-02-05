@@ -50,6 +50,19 @@ dependencies:
     application_name: "rshAnyGen"
     redirect_uri: "http://192.168.1.212:9300/callback"
 
+# 网络与代理（用于 git clone / 外部请求等）
+network:
+  proxy:
+    http: "${HTTP_PROXY:-}"
+    https: "${HTTPS_PROXY:-}"
+    all: "${ALL_PROXY:-}"
+    no_proxy: "${NO_PROXY:-}"
+
+skills_registry:
+  git:
+    clone_timeout_seconds: 600
+    debug: false
+
 # LLM 默认配置
 llm:
   provider: "qwen"

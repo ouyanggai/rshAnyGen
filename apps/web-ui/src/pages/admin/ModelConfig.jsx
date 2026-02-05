@@ -71,12 +71,12 @@ export default function ModelConfig() {
   };
 
   return (
-    <div className="p-6 bg-bg-primary dark:bg-bg-dark min-h-full transition-colors duration-300">
+    <div className="p-6 bg-transparent min-h-full transition-colors duration-300">
       <div className="max-w-3xl mx-auto">
         <h2 className="text-2xl font-heading font-semibold mb-6 text-text-primary dark:text-text-primary-dark">模型配置</h2>
 
         {/* LLM 配置 */}
-        <div className="card p-6 mb-6 bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark shadow-elevation-1 rounded-2xl">
+        <div className="card p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <BeakerIcon className="w-5 h-5 text-primary" />
             <h3 className="font-semibold text-text-primary dark:text-text-primary-dark">LLM 提供商</h3>
@@ -95,7 +95,7 @@ export default function ModelConfig() {
                   const provider = llmProviders.find(p => p.id === e.target.value);
                   setSelectedLlmModel(provider?.defaultModel || '');
                 }}
-                className="w-full px-4 py-2.5 bg-bg-tertiary dark:bg-bg-input-dark border border-border dark:border-border-dark rounded-xl text-text-primary dark:text-text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="input"
               >
                 {llmProviders.map((provider) => (
                   <option key={provider.id} value={provider.id}>
@@ -113,7 +113,7 @@ export default function ModelConfig() {
               <select
                 value={selectedLlmModel}
                 onChange={(e) => setSelectedLlmModel(e.target.value)}
-                className="w-full px-4 py-2.5 bg-bg-tertiary dark:bg-bg-input-dark border border-border dark:border-border-dark rounded-xl text-text-primary dark:text-text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="input"
               >
                 {currentProvider?.models.map((model) => (
                   <option key={model} value={model}>
@@ -135,7 +135,7 @@ export default function ModelConfig() {
                   setApiKeys({ ...apiKeys, [selectedLlmProvider]: e.target.value })
                 }
                 placeholder="输入您的 API 密钥"
-                className="w-full px-4 py-2.5 bg-bg-tertiary dark:bg-bg-input-dark border border-border dark:border-border-dark rounded-xl text-text-primary dark:text-text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder-text-muted dark:placeholder-text-muted/50"
+                className="input"
               />
             </div>
 
@@ -143,7 +143,7 @@ export default function ModelConfig() {
             <button
               onClick={handleTestConnection}
               disabled={testStatus === 'loading'}
-              className="flex items-center gap-2 px-4 py-2.5 bg-bg-tertiary dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 text-text-primary dark:text-text-primary-dark rounded-xl transition-colors disabled:opacity-50"
+              className="btn btn-secondary w-full justify-center"
             >
               {testStatus === 'loading' ? (
                 <>
@@ -166,12 +166,12 @@ export default function ModelConfig() {
         </div>
 
         {/* Embedding 配置 */}
-        <div className="card p-6 mb-6 bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark shadow-elevation-1 rounded-2xl">
+        <div className="card p-6 mb-6">
           <h3 className="font-semibold mb-4 text-text-primary dark:text-text-primary-dark">Embedding 提供商</h3>
           <select
             value={selectedEmbedding}
             onChange={(e) => setSelectedEmbedding(e.target.value)}
-            className="w-full px-4 py-2.5 bg-bg-tertiary dark:bg-bg-input-dark border border-border dark:border-border-dark rounded-xl text-text-primary dark:text-text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="input"
           >
             {embeddingProviders.map((provider) => (
               <option key={provider.id} value={provider.id}>
@@ -185,7 +185,7 @@ export default function ModelConfig() {
         <div className="flex justify-end">
           <button
             onClick={handleSaveConfig}
-            className="px-6 py-2.5 bg-primary hover:bg-primary-600 text-white rounded-xl shadow-glow-sm hover:shadow-glow-md transition-all duration-200"
+            className="btn btn-primary px-6 py-2.5 rounded-xl"
           >
             保存配置
           </button>

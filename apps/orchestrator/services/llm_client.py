@@ -7,7 +7,7 @@ import os
 for key in ['http_proxy', 'https_proxy', 'all_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY']:
     os.environ.pop(key, None)
 
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from apps.shared.config_loader import ConfigLoader
 from apps.shared.logger import LogManager
 
@@ -66,4 +66,15 @@ class LLMClient:
             streaming=True,  # Enable streaming by default
             http_client=_http_client,
             http_async_client=_http_async_client,
+        )
+
+    def get_embedding_client(self, model: str = "text-embedding-v3"):
+        """Get OpenAIEmbeddings instance"""
+        return OpenAIEmbeddings(
+            base_url=self.provider_config.get("base_url"),
+            api_key=self.provider_config.get("api_key"),
+            model=model,
+            http_client=_http_client,
+            http_async_client=_http_async_client,
+            check_embedding_ctx_length=False
         )

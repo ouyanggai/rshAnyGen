@@ -63,7 +63,7 @@ export default function UserManagement() {
   };
 
   return (
-    <div className="p-6 bg-bg-primary dark:bg-bg-dark min-h-full transition-colors duration-300">
+    <div className="p-6 bg-transparent min-h-full transition-colors duration-300">
       <div className="max-w-5xl mx-auto">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
@@ -77,7 +77,7 @@ export default function UserManagement() {
 
           <button
             onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white font-medium hover:bg-primary-600 transition-colors shadow-glow-sm"
+            className="btn btn-primary rounded-xl"
           >
             <PlusIcon className="w-5 h-5" />
             新建用户
@@ -210,7 +210,7 @@ export default function UserManagement() {
 function ModalShell({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-bg-card-dark border border-border dark:border-border-dark shadow-xl p-6">
         <div className="text-lg font-semibold text-text-primary dark:text-text-primary-dark mb-4">
           {title}
@@ -470,4 +470,3 @@ function FieldInput({ label, value, onChange, placeholder = '', type = 'text' })
     </div>
   );
 }
-

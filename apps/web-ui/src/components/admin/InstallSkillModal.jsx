@@ -1,20 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Dialog } from '@headlessui/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
+import { toast } from 'sonner';
 import {
   XMarkIcon,
   ArrowPathIcon,
   PlusIcon,
   TrashIcon,
+  CodeBracketIcon,
+  CommandLineIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 import {
   createSkillSource,
   deleteSkillSource,
   getSkillSources,
+  getInstallJob,
+  installFromSourceAsync,
+  installSkillAsync,
   listAllSourceSkills,
   listSourceSkills,
   toggleSkillSource,
 } from '../../api/skills';
+
+function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
 
 const DEFAULT_FORM = {
   repo_url: '',
@@ -31,8 +46,35 @@ const DEFAULT_SOURCE_FORM = {
   ref: '',
 };
 
-function classNames(...classes) {
-  return classes.filter(Boolean).join(' ');
+function formatDuration(startIso, endIso) {
+  const start = Date.parse(startIso || '');
+  if (!Number.isFinite(start)) return '';
+  const end = Number.isFinite(Date.parse(endIso || '')) ? Date.parse(endIso) : Date.now();
+  const ms = Math.max(0, end - start);
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+}
+
+function inferInstallStage(job) {
+  if (!job) return null;
+  const status = job.status;
+  const logs = job.logs || [];
+  const has = (text) => logs.some((line) => line.includes(text));
+
+  if (status === 'success') return { label: '安装完成', progress: 100 };
+  if (status === 'error') return { label: '安装失败', progress: 100 };
+  if (status === 'pending') return { label: '排队中', progress: 5 };
+
+  let label = '准备中...';
+  let progress = 10;
+  
+  if (has('git clone')) { label = '克隆仓库中...'; progress = 40; }
+  if (has('校验技能目录') || has('解析 SKILL.md')) { label = '校验技能中...'; progress = 70; }
+  if (has('复制文件到')) { label = '安装文件中...'; progress = 90; }
+  if (has('安装完成')) { label = '完成中...'; progress = 100; }
+
+  return { label, progress };
 }
 
 function Toggle({ enabled, disabled, onToggle }) {
@@ -43,87 +85,147 @@ function Toggle({ enabled, disabled, onToggle }) {
       aria-checked={enabled}
       disabled={disabled}
       onClick={onToggle}
-      className={[
-        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
-        enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600',
-        disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
-      ].join(' ')}
-      title={enabled ? '已启用' : '已禁用'}
+      className={cn(
+        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary',
+        enabled ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600',
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+      )}
     >
       <span
-        className={[
-          'inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform',
-          enabled ? 'translate-x-4' : 'translate-x-1',
-        ].join(' ')}
+        className={cn(
+          'inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform',
+          enabled ? 'translate-x-4.5' : 'translate-x-1'
+        )}
       />
     </button>
   );
 }
 
-export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstallFromSource }) {
+export default function InstallSkillModal({ isOpen, onClose, onInstalled }) {
   const [formData, setFormData] = useState(DEFAULT_FORM);
   const [tab, setTab] = useState('market');
+  const [activeJob, setActiveJob] = useState(null);
+  const [jobError, setJobError] = useState(null);
+  const [pendingInstall, setPendingInstall] = useState(null);
+  const [showJobLogs, setShowJobLogs] = useState(false); // Default hidden
+  const logsEndRef = useRef(null);
 
   const [sources, setSources] = useState([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
-  const [sourcesError, setSourcesError] = useState(null);
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [scope, setScope] = useState('source'); // source | all
 
   const [sourceForm, setSourceForm] = useState(DEFAULT_SOURCE_FORM);
   const [addingSource, setAddingSource] = useState(false);
-  const [addSourceError, setAddSourceError] = useState(null);
 
   const [remoteSkills, setRemoteSkills] = useState([]);
   const [remoteMeta, setRemoteMeta] = useState({ cached: false, source: null });
   const [remoteLoading, setRemoteLoading] = useState(false);
-  const [remoteError, setRemoteError] = useState(null);
   const [remoteQuery, setRemoteQuery] = useState('');
   const [installingKey, setInstallingKey] = useState(null);
+  
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const jobStage = useMemo(() => inferInstallStage(activeJob), [activeJob]);
+  const latestLog = useMemo(() => {
+    const logs = activeJob?.logs || [];
+    return logs.length ? logs[logs.length - 1] : '';
+  }, [activeJob?.logs]);
+  const jobDuration = useMemo(() => formatDuration(activeJob?.created_at, activeJob?.updated_at), [activeJob?.created_at, activeJob?.updated_at]);
 
+  // Reset state on open
   useEffect(() => {
-    if (!isOpen) return;
-    setFormData(DEFAULT_FORM);
-    setError(null);
-    setLoading(false);
-    setTab('market');
-    setScope('source');
-    setRemoteQuery('');
-    setRemoteSkills([]);
-    setRemoteMeta({ cached: false, source: null });
-    setRemoteError(null);
-    setInstallingKey(null);
-    setSourceForm(DEFAULT_SOURCE_FORM);
-    setAddSourceError(null);
-    setAddingSource(false);
+    if (isOpen) {
+      setFormData(DEFAULT_FORM);
+      setActiveJob(null);
+      setJobError(null);
+      setPendingInstall(null);
+      setShowJobLogs(false);
+      setSourceForm(DEFAULT_SOURCE_FORM);
+      setAddingSource(false);
+    }
   }, [isOpen]);
 
+  // Reset page on filter
+  useEffect(() => {
+    setPage(1);
+  }, [remoteQuery, scope, selectedSourceId]);
+
+  // Poll install job
+  useEffect(() => {
+    if (!isOpen || !activeJob?.id) return;
+    const jobId = activeJob.id;
+    let stopped = false;
+    let timer = null;
+
+    const poll = async () => {
+      try {
+        const data = await getInstallJob(jobId, { tail: 200 });
+        if (stopped) return;
+        setActiveJob(data);
+
+        if (data?.status === 'success' || data?.status === 'error') {
+          if (timer) clearInterval(timer);
+          timer = null;
+          setInstallingKey(null);
+
+          if (data?.status === 'success') {
+            toast.success('技能安装成功');
+            if (pendingInstall?.type === 'source' && pendingInstall?.key) {
+              setRemoteSkills((prev) => prev.map((s) => {
+                const sourceId = s.source_id || selectedSourceId;
+                const key = `${sourceId}:${s.slug}`;
+                return key === pendingInstall.key ? { ...s, installed: true } : s;
+              }));
+            }
+            onInstalled?.();
+          } else {
+            toast.error('安装失败');
+            setJobError(data.error || 'Unknown error');
+          }
+        }
+      } catch (e) {
+        if (!stopped) setJobError(e.message);
+      }
+    };
+
+    poll();
+    timer = setInterval(poll, 1000);
+    return () => {
+      stopped = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [activeJob?.id, isOpen, onInstalled, pendingInstall, selectedSourceId]);
+
+  // Auto scroll logs
+  useEffect(() => {
+    if (showJobLogs && activeJob?.logs?.length) {
+      logsEndRef.current?.scrollIntoView({ block: 'end' });
+    }
+  }, [activeJob?.logs?.length, showJobLogs]);
+
+  // Load Sources
   const loadSources = useCallback(async () => {
     setSourcesLoading(true);
-    setSourcesError(null);
     try {
       const data = await getSkillSources();
       const list = data?.sources || [];
       setSources(list);
-      setSelectedSourceId((prev) => {
-        const stillExists = list.some((s) => s.id === prev);
-        if (stillExists) return prev;
-        const firstEnabled = list.find((s) => s.enabled);
-        return firstEnabled?.id || (list[0]?.id || '');
+      setSelectedSourceId(prev => {
+        if (list.some(s => s.id === prev)) return prev;
+        return list.find(s => s.enabled)?.id || list[0]?.id || '';
       });
     } catch (err) {
-      setSourcesError(err?.response?.data?.detail || err.message || '加载源失败');
+      toast.error('加载源失败');
     } finally {
       setSourcesLoading(false);
     }
   }, []);
 
+  // Load Remote Skills
   const loadRemote = useCallback(async ({ refresh = false } = {}) => {
     setRemoteLoading(true);
-    setRemoteError(null);
     try {
       if (scope === 'all') {
         const data = await listAllSourceSkills({ refresh, enabledOnly: true });
@@ -132,7 +234,6 @@ export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstal
       } else {
         if (!selectedSourceId) {
           setRemoteSkills([]);
-          setRemoteMeta({ cached: false, source: null });
           return;
         }
         const data = await listSourceSkills(selectedSourceId, { refresh });
@@ -140,23 +241,19 @@ export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstal
         setRemoteMeta({ cached: Boolean(data?.cached), source: data?.source || null });
       }
     } catch (err) {
-      setRemoteError(err?.response?.data?.detail || err.message || '加载技能列表失败');
+      toast.error('加载技能失败');
       setRemoteSkills([]);
-      setRemoteMeta({ cached: false, source: null });
     } finally {
       setRemoteLoading(false);
     }
   }, [scope, selectedSourceId]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    loadSources();
+    if (isOpen) loadSources();
   }, [isOpen, loadSources]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    if (tab !== 'market') return;
-    loadRemote({ refresh: false });
+    if (isOpen && tab === 'market') loadRemote({ refresh: false });
   }, [isOpen, tab, loadRemote]);
 
   const selectedSource = useMemo(() => sources.find((s) => s.id === selectedSourceId) || null, [sources, selectedSourceId]);
@@ -165,16 +262,17 @@ export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstal
     const q = remoteQuery.trim().toLowerCase();
     const list = remoteSkills || [];
     if (!q) return list;
-    return list.filter((s) => {
-      const hay = `${s.title || ''} ${s.id || ''} ${s.slug || ''} ${s.description || ''} ${s.source_name || ''}`.toLowerCase();
-      return hay.includes(q);
-    });
+    return list.filter((s) => 
+      `${s.title} ${s.id} ${s.slug} ${s.description} ${s.source_name}`.toLowerCase().includes(q)
+    );
   }, [remoteSkills, remoteQuery]);
 
-  const handleAddSource = useCallback(async (e) => {
+  const totalPages = Math.ceil(filteredRemoteSkills.length / pageSize);
+  const paginatedRemoteSkills = filteredRemoteSkills.slice((page - 1) * pageSize, page * pageSize);
+
+  const handleAddSource = async (e) => {
     e.preventDefault();
     setAddingSource(true);
-    setAddSourceError(null);
     try {
       const payload = {
         repo_url: sourceForm.repo_url.trim(),
@@ -190,58 +288,59 @@ export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstal
         setScope('source');
       }
       setSourceForm(DEFAULT_SOURCE_FORM);
+      toast.success('添加源成功');
     } catch (err) {
-      setAddSourceError(err?.response?.data?.detail || err.message || '添加源失败');
+      toast.error(err.message || '添加源失败');
     } finally {
       setAddingSource(false);
     }
-  }, [loadSources, sourceForm]);
+  };
 
-  const handleToggleSource = useCallback(async (sourceId, enabled) => {
+  const handleToggleSource = async (sourceId, enabled) => {
     try {
       await toggleSkillSource(sourceId, enabled);
       await loadSources();
+      toast.success(enabled ? '源已启用' : '源已禁用');
     } catch (err) {
-      setSourcesError(err?.response?.data?.detail || err.message || '更新源状态失败');
+      toast.error('更新源失败');
     }
-  }, [loadSources]);
+  };
 
-  const handleDeleteSource = useCallback(async (sourceId, builtin) => {
-    const ok = window.confirm(builtin ? '确定要禁用这个默认源吗？' : '确定要删除这个自定义源吗？');
-    if (!ok) return;
+  const handleDeleteSource = async (sourceId, builtin) => {
+    if (!window.confirm(builtin ? '禁用该内置源?' : '删除该源?')) return;
     try {
       await deleteSkillSource(sourceId);
       await loadSources();
+      toast.success('源已删除');
     } catch (err) {
-      setSourcesError(err?.response?.data?.detail || err.message || '删除源失败');
+      toast.error('删除源失败');
     }
-  }, [loadSources]);
+  };
 
-  const handleInstallRemote = useCallback(async (skill) => {
-    if (!onInstallFromSource) return;
+  const handleInstallRemote = async (skill) => {
+    if (activeJob?.status === 'pending' || activeJob?.status === 'running') return;
     const sourceId = skill.source_id || selectedSourceId;
     const slug = skill.slug;
     if (!sourceId || !slug) return;
+
     const key = `${sourceId}:${slug}`;
     setInstallingKey(key);
+    setJobError(null);
     try {
-      await onInstallFromSource(sourceId, slug, { overwrite: Boolean(formData.overwrite) });
-      setRemoteSkills((prev) => prev.map((s) => {
-        const sid = s.source_id || selectedSourceId;
-        const skey = `${sid}:${s.slug}`;
-        return skey === key ? { ...s, installed: true } : s;
-      }));
+      setPendingInstall({ type: 'source', key });
+      const job = await installFromSourceAsync(sourceId, { slug, overwrite: Boolean(formData.overwrite) });
+      setActiveJob(job);
+      setShowJobLogs(true);
     } catch (err) {
-      setRemoteError(err?.response?.data?.detail || err.message || '安装失败');
-    } finally {
+      toast.error('安装启动失败');
       setInstallingKey(null);
     }
-  }, [formData.overwrite, onInstallFromSource, selectedSourceId]);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
+    if (activeJob?.status === 'pending' || activeJob?.status === 'running') return;
+    setJobError(null);
     try {
       const payload = {
         repo_url: formData.repo_url.trim(),
@@ -250,469 +349,337 @@ export default function InstallSkillModal({ isOpen, onClose, onInstall, onInstal
         ref: formData.ref.trim() || null,
         overwrite: Boolean(formData.overwrite),
       };
-      await onInstall(payload);
-      onClose();
+      setPendingInstall({ type: 'manual' });
+      const job = await installSkillAsync(payload);
+      setActiveJob(job);
+      setShowJobLogs(true);
     } catch (err) {
-      setError(err?.response?.data?.detail || err.message || '安装失败');
-    } finally {
-      setLoading(false);
+      toast.error('安装启动失败');
     }
   };
 
   return (
-    <Dialog open={isOpen} onClose={onClose} className="relative z-50">
-      <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+    <Transition appear show={isOpen} as={Fragment}>
+      <Dialog as="div" className="relative z-50" onClose={onClose}>
+        <Transition.Child
+          as={Fragment}
+          enter="ease-out duration-300"
+          enterFrom="opacity-0"
+          enterTo="opacity-100"
+          leave="ease-in duration-200"
+          leaveFrom="opacity-100"
+          leaveTo="opacity-0"
+        >
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" />
+        </Transition.Child>
 
-      <div className="fixed inset-0 flex items-center justify-center p-4">
-        <Dialog.Panel className="mx-auto max-w-5xl w-full rounded-2xl bg-white dark:bg-bg-card-dark p-6 shadow-xl border border-border dark:border-border-dark">
-          <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-medium text-text-primary dark:text-text-primary-dark">
-              安装技能
-            </Dialog.Title>
-            <button
-              onClick={onClose}
-              className="text-text-muted hover:text-text-primary dark:hover:text-text-primary-dark transition-colors"
-              aria-label="关闭"
+        <div className="fixed inset-0 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4 text-center">
+            <Transition.Child
+              as={Fragment}
+              enter="ease-out duration-300"
+              enterFrom="opacity-0 scale-95"
+              enterTo="opacity-100 scale-100"
+              leave="ease-in duration-200"
+              leaveFrom="opacity-100 scale-100"
+              leaveTo="opacity-0 scale-95"
             >
-              <XMarkIcon className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="mb-5">
-            <div className="inline-flex rounded-xl bg-bg-tertiary dark:bg-bg-input-dark p-1">
-              <button
-                type="button"
-                onClick={() => setTab('market')}
-                className={classNames(
-                  'px-3 py-1.5 text-sm rounded-lg transition-colors',
-                  tab === 'market'
-                    ? 'bg-white dark:bg-bg-card-dark text-text-primary dark:text-text-primary-dark shadow-sm'
-                    : 'text-text-muted hover:text-text-primary dark:hover:text-text-primary-dark'
-                )}
-              >
-                从源安装
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('manual')}
-                className={classNames(
-                  'px-3 py-1.5 text-sm rounded-lg transition-colors',
-                  tab === 'manual'
-                    ? 'bg-white dark:bg-bg-card-dark text-text-primary dark:text-text-primary-dark shadow-sm'
-                    : 'text-text-muted hover:text-text-primary dark:hover:text-text-primary-dark'
-                )}
-              >
-                手动安装
-              </button>
-            </div>
-          </div>
-
-          {tab === 'market' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Sources */}
-              <div className="lg:col-span-4 rounded-2xl border border-border dark:border-border-dark bg-white dark:bg-bg-card-dark p-4">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="text-sm font-medium text-text-primary dark:text-text-primary-dark">技能源</div>
-                  <button
-                    type="button"
-                    onClick={loadSources}
-                    disabled={sourcesLoading}
-                    className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs border border-border dark:border-border-dark bg-white dark:bg-bg-card-dark hover:bg-bg-tertiary dark:hover:bg-white/5 transition-colors disabled:opacity-60"
-                    title="刷新源列表"
-                  >
-                    <ArrowPathIcon className={classNames('w-4 h-4', sourcesLoading ? 'animate-spin' : '')} />
-                    刷新
+              <Dialog.Panel className="w-full max-w-5xl transform overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 p-6 text-left align-middle shadow-xl border border-zinc-200 dark:border-zinc-800 transition-all">
+                <div className="flex items-center justify-between mb-6">
+                  <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-foreground">
+                    安装技能
+                  </Dialog.Title>
+                  <button onClick={onClose} className="p-1 rounded-md text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+                    <XMarkIcon className="w-5 h-5" />
                   </button>
                 </div>
 
-                {sourcesError && (
-                  <div className="text-xs text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg mb-3">
-                    {sourcesError}
-                  </div>
-                )}
-
-                <div className="space-y-2 max-h-72 overflow-auto pr-1">
-                  {sources.length === 0 ? (
-                    <div className="text-sm text-text-muted dark:text-text-secondary-dark">暂无源</div>
-                  ) : (
-                    sources.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedSourceId(s.id);
-                          setScope('source');
-                        }}
-                        className={classNames(
-                          'w-full text-left rounded-xl border px-3 py-2 transition-colors',
-                          selectedSourceId === s.id && scope === 'source'
-                            ? 'border-primary/40 bg-primary/5'
-                            : 'border-border dark:border-border-dark bg-white dark:bg-bg-card-dark hover:bg-bg-tertiary dark:hover:bg-white/5'
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <div className="text-sm font-medium text-text-primary dark:text-text-primary-dark truncate">
-                                {s.name}
-                              </div>
-                              {s.builtin && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200">
-                                  默认
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-1 text-[11px] text-text-muted dark:text-text-secondary-dark font-mono truncate">
-                              {s.repo_url}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <Toggle
-                              enabled={Boolean(s.enabled)}
-                              disabled={sourcesLoading}
-                              onToggle={(e) => {
-                                e.stopPropagation();
-                                handleToggleSource(s.id, !s.enabled);
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteSource(s.id, Boolean(s.builtin));
-                              }}
-                              className="p-1.5 rounded-lg text-text-muted hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                              title={s.builtin ? '禁用默认源' : '删除源'}
-                            >
-                              <TrashIcon className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                        {s.description && (
-                          <div className="mt-2 text-xs text-text-secondary dark:text-text-secondary-dark line-clamp-2">
-                            {s.description}
-                          </div>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-
-                {/* Add source */}
-                <div className="mt-4 pt-4 border-t border-border/60 dark:border-border-dark/60">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium text-text-primary dark:text-text-primary-dark">添加源</div>
-                    <button
-                      type="button"
-                      onClick={() => setScope('all')}
-                      className={classNames(
-                        'inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs border transition-colors',
-                        scope === 'all'
-                          ? 'border-primary/40 bg-primary/5 text-text-primary dark:text-text-primary-dark'
-                          : 'border-border dark:border-border-dark bg-white dark:bg-bg-card-dark hover:bg-bg-tertiary dark:hover:bg-white/5 text-text-muted'
-                      )}
-                      title="聚合所有源的技能"
-                    >
-                      全部源
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleAddSource} className="mt-3 space-y-2">
-                    <input
-                      type="text"
-                      value={sourceForm.repo_url}
-                      onChange={(e) => setSourceForm({ ...sourceForm, repo_url: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark text-sm"
-                      placeholder="Git 仓库，如 vercel-labs/skills"
-                      required
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        value={sourceForm.subdir}
-                        onChange={(e) => setSourceForm({ ...sourceForm, subdir: e.target.value })}
-                        className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark text-sm"
-                        placeholder="子目录（默认 skills）"
-                      />
-                      <input
-                        type="text"
-                        value={sourceForm.ref}
-                        onChange={(e) => setSourceForm({ ...sourceForm, ref: e.target.value })}
-                        className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark text-sm"
-                        placeholder="分支/Tag（可选）"
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      value={sourceForm.name}
-                      onChange={(e) => setSourceForm({ ...sourceForm, name: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark text-sm"
-                      placeholder="显示名称（可选）"
-                    />
-
-                    {addSourceError && (
-                      <div className="text-xs text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg">
-                        {addSourceError}
-                      </div>
+                {/* Tabs */}
+                <div className="flex gap-2 mb-6 border-b border-border pb-1">
+                  <button
+                    onClick={() => setTab('market')}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2",
+                      tab === 'market' 
+                        ? "border-primary text-primary bg-primary/5" 
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-zinc-50"
                     )}
-
-                    <button
-                      type="submit"
-                      disabled={addingSource}
-                      className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white bg-primary hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <PlusIcon className="w-4 h-4" />
-                      {addingSource ? '添加中...' : '添加源'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* Remote skills */}
-              <div className="lg:col-span-8 rounded-2xl border border-border dark:border-border-dark bg-white dark:bg-bg-card-dark p-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text-primary dark:text-text-primary-dark truncate">
-                      {scope === 'all' ? '全部源技能' : (selectedSource?.name || '请选择源')}
-                    </div>
-                    <div className="mt-1 text-xs text-text-muted dark:text-text-secondary-dark">
-                      {scope === 'all'
-                        ? '会聚合所有已启用的源（首次可能较慢，后续走缓存）'
-                        : (remoteMeta?.cached ? '已使用缓存（可手动刷新）' : '首次拉取可能需要几秒')}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2 text-xs text-text-muted dark:text-text-secondary-dark select-none">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(formData.overwrite)}
-                        onChange={(e) => setFormData({ ...formData, overwrite: e.target.checked })}
-                        className="h-4 w-4 rounded border-border dark:border-border-dark text-primary focus:ring-primary"
-                      />
-                      覆盖同名
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => loadRemote({ refresh: true })}
-                      disabled={remoteLoading || (scope === 'source' && !selectedSourceId)}
-                      className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs border border-border dark:border-border-dark bg-white dark:bg-bg-card-dark hover:bg-bg-tertiary dark:hover:bg-white/5 transition-colors disabled:opacity-60"
-                      title="刷新技能列表"
-                    >
-                      <ArrowPathIcon className={classNames('w-4 h-4', remoteLoading ? 'animate-spin' : '')} />
-                      刷新
-                    </button>
-                  </div>
+                  >
+                    技能市场
+                  </button>
+                  <button
+                    onClick={() => setTab('manual')}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2",
+                      tab === 'manual' 
+                        ? "border-primary text-primary bg-primary/5" 
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-zinc-50"
+                    )}
+                  >
+                    手动安装
+                  </button>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2 mb-3">
-                  <input
-                    value={remoteQuery}
-                    onChange={(e) => setRemoteQuery(e.target.value)}
-                    placeholder="搜索（名称 / ID / slug / 描述 / source）"
-                    className="flex-1 px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark text-sm"
-                  />
-                  <div className="inline-flex rounded-lg border border-border dark:border-border-dark overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setScope('source')}
-                      className={classNames(
-                        'px-3 py-2 text-sm transition-colors',
-                        scope === 'source'
-                          ? 'bg-primary text-white'
-                          : 'bg-white dark:bg-bg-card-dark text-text-muted hover:text-text-primary dark:hover:text-text-primary-dark'
-                      )}
-                    >
-                      单源
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScope('all')}
-                      className={classNames(
-                        'px-3 py-2 text-sm transition-colors',
-                        scope === 'all'
-                          ? 'bg-primary text-white'
-                          : 'bg-white dark:bg-bg-card-dark text-text-muted hover:text-text-primary dark:hover:text-text-primary-dark'
-                      )}
-                    >
-                      全部
-                    </button>
-                  </div>
-                </div>
+                {/* Active Job Status */}
+                {activeJob && (
+                  <div className="mb-6 rounded-xl border border-border bg-zinc-50/50 dark:bg-zinc-800/50 p-4">
+                     <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                           {activeJob.status === 'running' || activeJob.status === 'pending' ? (
+                             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                           ) : activeJob.status === 'success' ? (
+                             <div className="w-2 h-2 rounded-full bg-green-500" />
+                           ) : (
+                             <div className="w-2 h-2 rounded-full bg-red-500" />
+                           )}
+                           <span className="font-medium text-sm text-foreground">
+                             {jobStage?.label || activeJob.status}
+                           </span>
+                           {jobDuration && <span className="text-xs text-muted-foreground ml-2">{jobDuration}</span>}
+                        </div>
+                        <button onClick={() => setShowJobLogs(!showJobLogs)} className="text-xs text-primary hover:underline">
+                          {showJobLogs ? '隐藏日志' : '显示日志'}
+                        </button>
+                     </div>
+                     
+                     {/* Progress Bar */}
+                     {(activeJob.status === 'running' || activeJob.status === 'pending') && (
+                       <div className="h-1.5 w-full bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden mb-2">
+                         <div 
+                           className="h-full bg-primary transition-all duration-500 ease-out"
+                           style={{ width: `${jobStage?.progress || 0}%` }}
+                         />
+                       </div>
+                     )}
 
-                {remoteError && (
-                  <div className="text-sm text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg mb-3">
-                    {remoteError}
+                     {/* Logs */}
+                     {showJobLogs && (
+                       <div className="mt-2 p-3 bg-zinc-900 rounded-lg max-h-48 overflow-auto font-mono text-xs text-zinc-300">
+                         {activeJob.logs?.map((line, i) => (
+                           <div key={i} className="whitespace-pre-wrap">{line}</div>
+                         ))}
+                         <div ref={logsEndRef} />
+                       </div>
+                     )}
+                     
+                     {/* Error */}
+                     {(jobError || activeJob.error) && (
+                       <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                         {jobError || activeJob.error}
+                       </div>
+                     )}
                   </div>
                 )}
 
-                <div className="max-h-[420px] overflow-auto pr-1 space-y-2">
-                  {remoteLoading ? (
-                    <div className="py-10 flex items-center justify-center">
-                      <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  ) : filteredRemoteSkills.length === 0 ? (
-                    <div className="text-sm text-text-muted dark:text-text-secondary-dark py-10 text-center">
-                      {scope === 'source' && !selectedSourceId ? '请先选择一个源' : '没有找到可用技能'}
-                    </div>
-                  ) : (
-                    filteredRemoteSkills.map((s) => {
-                      const sourceId = s.source_id || selectedSourceId;
-                      const key = `${sourceId}:${s.slug}`;
-                      const canInstall = Boolean(onInstallFromSource) && !s.installed && Boolean(sourceId) && Boolean(s.slug);
-                      return (
-                        <div
-                          key={key}
-                          className="rounded-xl border border-border dark:border-border-dark bg-white dark:bg-bg-card-dark p-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <div className="font-medium text-text-primary dark:text-text-primary-dark truncate">
-                                  {s.title || s.id}
+                {/* Content */}
+                {tab === 'market' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[500px]">
+                    {/* Sidebar Sources */}
+                    <div className="lg:col-span-4 flex flex-col h-full border-r border-border pr-4">
+                       <div className="flex items-center justify-between mb-3">
+                         <span className="text-sm font-semibold text-foreground">源</span>
+                         <button onClick={loadSources} disabled={sourcesLoading} className="p-1 text-muted-foreground hover:text-foreground">
+                           <ArrowPathIcon className={cn("w-4 h-4", sourcesLoading && "animate-spin")} />
+                         </button>
+                       </div>
+                       
+                       <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                         {sources.map(s => (
+                           <div 
+                             key={s.id}
+                             onClick={() => { setSelectedSourceId(s.id); setScope('source'); }}
+                             className={cn(
+                               "group flex flex-col p-3 rounded-xl border cursor-pointer transition-all",
+                               selectedSourceId === s.id && scope === 'source'
+                                 ? "bg-primary/5 border-primary/30 shadow-sm"
+                                 : "bg-card border-border hover:bg-zinc-50 hover:border-zinc-300"
+                             )}
+                           >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-sm">{s.name}</span>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Toggle enabled={s.enabled} onToggle={(e) => { e.stopPropagation(); handleToggleSource(s.id, !s.enabled); }} />
+                                  <button onClick={(e) => { e.stopPropagation(); handleDeleteSource(s.id, s.builtin); }} className="p-1 text-muted-foreground hover:text-red-500">
+                                    <TrashIcon className="w-4 h-4" />
+                                  </button>
                                 </div>
-                                {s.installed && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
-                                    已安装
-                                  </span>
-                                )}
-                                {scope === 'all' && s.source_name && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200">
-                                    {s.source_name}
-                                  </span>
-                                )}
                               </div>
-                              <div className="mt-1 text-xs text-text-muted dark:text-text-secondary-dark line-clamp-2">
-                                {s.description || '（无描述）'}
-                              </div>
-                              <div className="mt-2 text-[11px] text-text-muted dark:text-text-secondary-dark font-mono truncate">
-                                {s.id} · {s.slug}
-                              </div>
+                              <span className="text-xs text-muted-foreground mt-1 truncate">{s.repo_url}</span>
+                           </div>
+                         ))}
+                         
+                         {/* Add Source Form */}
+                         <div className="mt-4 pt-4 border-t border-border">
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">添加新源</span>
+                            <form onSubmit={handleAddSource} className="space-y-2">
+                              <input 
+                                placeholder="仓库地址 (e.g. vercel/skills)" 
+                                className="w-full text-xs px-2 py-1.5 rounded border border-border bg-background"
+                                value={sourceForm.repo_url}
+                                onChange={e => setSourceForm({...sourceForm, repo_url: e.target.value})}
+                              />
+                              <input 
+                                placeholder="名称 (可选)" 
+                                className="w-full text-xs px-2 py-1.5 rounded border border-border bg-background"
+                                value={sourceForm.name}
+                                onChange={e => setSourceForm({...sourceForm, name: e.target.value})}
+                              />
+                              <button 
+                                type="submit" 
+                                disabled={addingSource}
+                                className="w-full flex items-center justify-center gap-1 text-xs font-medium py-1.5 bg-zinc-900 text-white rounded hover:bg-zinc-800 disabled:opacity-50"
+                              >
+                                {addingSource ? '添加中...' : '添加源'}
+                              </button>
+                            </form>
+                         </div>
+                       </div>
+                    </div>
+                    
+                    {/* Main Skills List */}
+                    <div className="lg:col-span-8 flex flex-col h-full pl-2">
+                       <div className="flex items-center gap-3 mb-4">
+                          <div className="relative flex-1">
+                            <input 
+                              placeholder="搜索技能..." 
+                              className="w-full pl-9 pr-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-1 focus:ring-primary outline-none"
+                              value={remoteQuery}
+                              onChange={e => setRemoteQuery(e.target.value)}
+                            />
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                              <CommandLineIcon className="w-4 h-4" />
                             </div>
+                          </div>
+                          <div className="flex bg-zinc-100 p-1 rounded-lg">
+                            <button onClick={() => setScope('source')} className={cn("px-3 py-1 text-xs font-medium rounded-md transition-all", scope === 'source' ? "bg-white shadow-sm" : "text-muted-foreground")}>当前源</button>
+                            <button onClick={() => setScope('all')} className={cn("px-3 py-1 text-xs font-medium rounded-md transition-all", scope === 'all' ? "bg-white shadow-sm" : "text-muted-foreground")}>所有源</button>
+                          </div>
+                          <button onClick={() => loadRemote({ refresh: true })} className="p-2 border border-border rounded-lg hover:bg-zinc-50">
+                            <ArrowPathIcon className={cn("w-4 h-4", remoteLoading && "animate-spin")} />
+                          </button>
+                       </div>
 
+                       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                          {remoteLoading ? (
+                            <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+                          ) : filteredRemoteSkills.length === 0 ? (
+                            <div className="text-center py-10 text-muted-foreground text-sm">未找到技能</div>
+                          ) : (
+                            paginatedRemoteSkills.map(s => {
+                              const sourceId = s.source_id || selectedSourceId;
+                              const key = `${sourceId}:${s.slug}`;
+                              const isInstalling = installingKey === key;
+                              
+                              return (
+                                <div key={key} className="flex items-start justify-between p-4 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
+                                   <div className="min-w-0 pr-4">
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="font-semibold text-sm">{s.title || s.slug}</h4>
+                                        {s.installed && <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] rounded-full font-medium">已安装</span>}
+                                        {scope === 'all' && <span className="px-1.5 py-0.5 bg-zinc-100 text-zinc-600 text-[10px] rounded-full">{s.source_name}</span>}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{s.description || '暂无描述'}</p>
+                                      <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
+                                        <CodeBracketIcon className="w-3 h-3" />
+                                        {s.slug}
+                                      </div>
+                                   </div>
+                                   <button
+                                     onClick={() => handleInstallRemote(s)}
+                                     disabled={isInstalling || activeJob?.status === 'running' || (s.installed && !formData.overwrite)}
+                                     className={cn(
+                                       "px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
+                                       s.installed 
+                                         ? "bg-zinc-100 text-zinc-500"
+                                         : "bg-zinc-900 text-white hover:bg-zinc-700 shadow-sm"
+                                     )}
+                                   >
+                                     {isInstalling ? '安装中...' : (s.installed ? '已安装' : '安装')}
+                                   </button>
+                                </div>
+                              );
+                            })
+                          )}
+                       </div>
+
+                       {/* Pagination Controls */}
+                       {filteredRemoteSkills.length > 0 && (
+                        <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
+                          <span className="text-xs text-muted-foreground">
+                            {paginatedRemoteSkills.length > 0 ? (page - 1) * pageSize + 1 : 0} - {Math.min(page * pageSize, filteredRemoteSkills.length)} / {filteredRemoteSkills.length}
+                          </span>
+                          <div className="flex gap-1">
                             <button
-                              type="button"
-                              onClick={() => handleInstallRemote(s)}
-                              disabled={!canInstall || installingKey === key}
-                              className={classNames(
-                                'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-                                canInstall
-                                  ? 'bg-primary text-white hover:bg-primary-600'
-                                  : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-slate-300 cursor-not-allowed',
-                                installingKey === key ? 'opacity-80' : ''
-                              )}
-                              title={s.installed ? '已安装' : '安装到项目'}
+                              disabled={page === 1}
+                              onClick={() => setPage(p => p - 1)}
+                              className="p-1 rounded-md border border-border hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              {installingKey === key ? '安装中...' : (s.installed ? '已安装' : '安装')}
+                              <ChevronLeftIcon className="w-4 h-4" />
+                            </button>
+                            <button
+                              disabled={page >= totalPages}
+                              onClick={() => setPage(p => p + 1)}
+                              className="p-1 rounded-md border border-border hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <ChevronRightIcon className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-text-muted dark:text-text-secondary-dark mb-5">
-                支持输入 GitHub 仓库（如 <span className="font-mono">vercel-labs/skills</span> 或完整 URL），以及技能目录名（如 <span className="font-mono">find-skills</span>）。
-              </p>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-text-secondary dark:text-text-secondary-dark mb-1">
-                    Git 仓库
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.repo_url}
-                    onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark"
-                    placeholder="vercel-labs/skills"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-text-secondary dark:text-text-secondary-dark mb-1">
-                      Skill 名称
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.skill}
-                      onChange={(e) => setFormData({ ...formData, skill: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark"
-                      placeholder="find-skills"
-                      required
-                    />
+                       )}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-text-secondary dark:text-text-secondary-dark mb-1">
-                      子目录
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.subdir}
-                      onChange={(e) => setFormData({ ...formData, subdir: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark"
-                      placeholder="skills"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-text-secondary dark:text-text-secondary-dark mb-1">
-                    分支/Tag（可选）
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.ref}
-                    onChange={(e) => setFormData({ ...formData, ref: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-bg-tertiary dark:bg-bg-input-dark border border-transparent focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-text-primary dark:text-text-primary-dark"
-                    placeholder="main"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-text-secondary dark:text-text-secondary-dark select-none">
-                  <input
-                    type="checkbox"
-                    checked={formData.overwrite}
-                    onChange={(e) => setFormData({ ...formData, overwrite: e.target.checked })}
-                    className="h-4 w-4 rounded border-border dark:border-border-dark text-primary focus:ring-primary"
-                  />
-                  覆盖同名技能（会先备份到 storage/.deleted）
-                </label>
-
-                {error && (
-                  <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded-lg">
-                    {error}
+                ) : (
+                  <div className="max-w-lg mx-auto py-8">
+                     {/* Manual Install Form */}
+                     <form onSubmit={handleSubmit} className="space-y-4">
+                       <div>
+                         <label className="block text-sm font-medium mb-1">仓库地址 (Repository URL)</label>
+                         <input 
+                           required
+                           className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                           placeholder="https://github.com/username/repo"
+                           value={formData.repo_url}
+                           onChange={e => setFormData({...formData, repo_url: e.target.value})}
+                         />
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                         <div>
+                           <label className="block text-sm font-medium mb-1">技能名称 (Skill Name)</label>
+                           <input 
+                             required
+                             className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                             placeholder="my-skill"
+                             value={formData.skill}
+                             onChange={e => setFormData({...formData, skill: e.target.value})}
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-sm font-medium mb-1">子目录 (Subdirectory)</label>
+                           <input 
+                             className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                             placeholder="skills"
+                             value={formData.subdir}
+                             onChange={e => setFormData({...formData, subdir: e.target.value})}
+                           />
+                         </div>
+                       </div>
+                       <div className="pt-4">
+                         <button 
+                           type="submit" 
+                           disabled={activeJob?.status === 'running'}
+                           className="w-full py-2.5 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-medium shadow-lg shadow-primary/20 hover:shadow-xl hover:opacity-90 transition-all"
+                         >
+                           {activeJob?.status === 'running' ? '安装中...' : '安装技能'}
+                         </button>
+                       </div>
+                     </form>
                   </div>
                 )}
-
-                <div className="flex justify-end gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-4 py-2 text-sm font-medium text-text-secondary dark:text-text-secondary-dark hover:bg-bg-tertiary dark:hover:bg-white/5 rounded-lg transition-colors"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary-600 rounded-lg shadow-sm shadow-primary/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? '安装中...' : '安装'}
-                  </button>
-                </div>
-              </form>
-            </>
-          )}
-        </Dialog.Panel>
-      </div>
-    </Dialog>
+              </Dialog.Panel>
+            </Transition.Child>
+          </div>
+        </div>
+      </Dialog>
+    </Transition>
   );
 }

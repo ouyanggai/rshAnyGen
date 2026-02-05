@@ -58,6 +58,7 @@ export const deleteSkillSource = async (sourceId) => {
 export const listSourceSkills = async (sourceId, { refresh = false } = {}) => {
   const response = await api.get(`/v1/skill-sources/${sourceId}/skills`, {
     params: { refresh: refresh ? 1 : 0 },
+    timeout: 180000,
   });
   return response.data;
 };
@@ -65,12 +66,33 @@ export const listSourceSkills = async (sourceId, { refresh = false } = {}) => {
 export const listAllSourceSkills = async ({ refresh = false, enabledOnly = true } = {}) => {
   const response = await api.get('/v1/skill-sources/skills', {
     params: { refresh: refresh ? 1 : 0, enabled_only: enabledOnly ? 1 : 0 },
+    timeout: 180000,
   });
   return response.data;
 };
 
 export const installFromSource = async (sourceId, payload) => {
   const response = await api.post(`/v1/skill-sources/${sourceId}/install`, payload);
+  return response.data;
+};
+
+// === Install Jobs (async) ===
+
+export const installSkillAsync = async (payload) => {
+  const response = await api.post('/v1/skills/install-async', payload, { timeout: 120000 });
+  return response.data;
+};
+
+export const getInstallJob = async (jobId, { tail = 200 } = {}) => {
+  const response = await api.get(`/v1/skills/install-jobs/${jobId}`, {
+    params: { tail },
+    timeout: 120000,
+  });
+  return response.data;
+};
+
+export const installFromSourceAsync = async (sourceId, payload) => {
+  const response = await api.post(`/v1/skill-sources/${sourceId}/install-async`, payload, { timeout: 120000 });
   return response.data;
 };
 
@@ -87,4 +109,7 @@ export default {
   listSourceSkills,
   listAllSourceSkills,
   installFromSource,
+  installSkillAsync,
+  getInstallJob,
+  installFromSourceAsync,
 };

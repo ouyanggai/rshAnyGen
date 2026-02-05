@@ -49,7 +49,7 @@ def test_list_skills(mock_httpx_client):
     mock_httpx_client.get.return_value = mock_response
 
     client = TestClient(app)
-    response = client.get("/api/v1/skills")
+    response = client.get("/api/v1/skills", headers={"X-Test-Bypass": "true"})
 
     assert response.status_code == 200
     data = response.json()
@@ -67,7 +67,7 @@ def test_get_skill_found(mock_httpx_client):
     mock_httpx_client.get.return_value = mock_response
 
     client = TestClient(app)
-    response = client.get("/api/v1/skills/web_search")
+    response = client.get("/api/v1/skills/web_search", headers={"X-Test-Bypass": "true"})
 
     assert response.status_code == 200
     data = response.json()
@@ -82,7 +82,7 @@ def test_get_skill_not_found(mock_httpx_client):
     mock_httpx_client.get.return_value = mock_response
 
     client = TestClient(app)
-    response = client.get("/api/v1/skills/nonexistent")
+    response = client.get("/api/v1/skills/nonexistent", headers={"X-Test-Bypass": "true"})
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
@@ -98,7 +98,11 @@ def test_toggle_skill(mock_httpx_client):
 
     client = TestClient(app)
     # Toggle to False
-    response = client.post("/api/v1/skills/web_search/toggle", json={"enabled": False})
+    response = client.post(
+        "/api/v1/skills/web_search/toggle",
+        json={"enabled": False},
+        headers={"X-Test-Bypass": "true"}
+    )
 
     assert response.status_code == 200
     data = response.json()

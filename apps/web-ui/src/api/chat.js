@@ -3,9 +3,7 @@
  */
 
 import { getAccessToken } from '../auth/authStore';
-import { storage } from '../utils/storage';
-
-const SESSION_KEY = 'active_session_id';
+import { getActiveSessionId, setActiveSessionId } from '../utils/session';
 
 // 流式聊天
 export async function streamChat(message, options = {}) {
@@ -20,7 +18,7 @@ export async function streamChat(message, options = {}) {
 
   try {
     const token = getAccessToken();
-    const sessionId = storage.get(SESSION_KEY);
+    const sessionId = getActiveSessionId();
 
     const response = await fetch('/api/v1/chat/stream', {
       method: 'POST',
@@ -33,12 +31,13 @@ export async function streamChat(message, options = {}) {
         message, 
         enable_search: enableSearch, 
         kb_ids: kbIds,
-        stream: true 
+        stream: true,
+        ...(sessionId ? { session_id: sessionId } : {})
       }),
     });
 
     const nextSessionId = response.headers.get('X-Session-ID');
-    if (nextSessionId) storage.set(SESSION_KEY, nextSessionId);
+    if (nextSessionId) setActiveSessionId(nextSessionId);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -108,7 +107,7 @@ export async function sendMessage(message, options = {}) {
   } = options;
 
   const token = getAccessToken();
-  const sessionId = storage.get(SESSION_KEY);
+  const sessionId = getActiveSessionId();
 
   const response = await fetch('/api/v1/chat/stream', {
     method: 'POST',
@@ -121,12 +120,13 @@ export async function sendMessage(message, options = {}) {
       message, 
       enable_search: enableSearch, 
       kb_ids: kbIds,
-      stream: false 
+      stream: false,
+      ...(sessionId ? { session_id: sessionId } : {})
     }),
   });
 
   const nextSessionId = response.headers.get('X-Session-ID');
-  if (nextSessionId) storage.set(SESSION_KEY, nextSessionId);
+  if (nextSessionId) setActiveSessionId(nextSessionId);
 
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);

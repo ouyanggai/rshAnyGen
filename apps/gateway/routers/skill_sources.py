@@ -78,7 +78,7 @@ async def create_source(
 ):
     logger.info(f"Creating skill source: {request.repo_url}")
     try:
-        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
             resp = await client.post(
                 f"{SKILLS_REGISTRY_URL}/api/v1/skill-sources",
                 json=request.model_dump(),
@@ -207,3 +207,27 @@ async def install_from_source(
         logger.error(f"Error connecting to Skills Registry: {e}")
         raise HTTPException(status_code=503, detail="Skills Registry unreachable")
 
+
+@router.post("/{source_id}/install-async")
+async def install_from_source_async(
+    source_id: str,
+    request: InstallFromSourceRequest = Body(...),
+    _user=Depends(require_any_role(["admin"])),
+):
+    """异步从 Source 安装 Skill（返回 job_id）"""
+    logger.info(f"Installing skill async from source {source_id}: {request.slug}")
+    try:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+            resp = await client.post(
+                f"{SKILLS_REGISTRY_URL}/api/v1/skill-sources/{source_id}/install-async",
+                json=request.model_dump(),
+            )
+            if resp.status_code in (400, 404):
+                raise HTTPException(status_code=resp.status_code, detail=_detail_from_resp(resp))
+            if resp.status_code != 200:
+                logger.error(f"Failed to start install job from source: {resp.status_code} {resp.text}")
+                raise HTTPException(status_code=503, detail="Skills Registry unavailable")
+            return resp.json()
+    except httpx.RequestError as e:
+        logger.error(f"Error connecting to Skills Registry: {e}")
+        raise HTTPException(status_code=503, detail="Skills Registry unreachable")

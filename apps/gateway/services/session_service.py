@@ -28,8 +28,10 @@ class SessionService:
             "session_id": session_id,
             "user_id": user_id,
             "title": title,
+            "title_source": "default",
             "created_at": now,
             "updated_at": now,
+            "kb_ids": "[]",
         }
         await self.redis.hset(self._session_key(session_id), session)
         await self.redis.zadd(self._user_sessions_key(user_id), {session_id: float(now)})
@@ -45,8 +47,10 @@ class SessionService:
             "session_id": data.get("session_id", session_id),
             "user_id": data.get("user_id"),
             "title": data.get("title", "新会话"),
+            "title_source": data.get("title_source", "default"),
             "created_at": int(data.get("created_at") or 0),
             "updated_at": int(data.get("updated_at") or 0),
+            "kb_ids": self._parse_kb_ids(data.get("kb_ids")),
         }
 
     async def list_sessions(self, user_id: str, limit: int = 50) -> List[Dict]:
@@ -80,7 +84,26 @@ class SessionService:
         await self.redis.hset(self._session_key(session_id), {"updated_at": now})
         await self.redis.zadd(self._user_sessions_key(user_id), {session_id: float(now)})
 
-    async def update_title(self, session_id: str, title: str) -> None:
+    async def update_title(self, session_id: str, title: str, source: str = "user") -> None:
         await self.redis.init()
-        await self.redis.hset(self._session_key(session_id), {"title": title})
+        await self.redis.hset(self._session_key(session_id), {"title": title, "title_source": source})
+        await self.touch_session(session_id)
+
+    def _parse_kb_ids(self, raw: Optional[str]) -> List[str]:
+        if not raw:
+            return []
+        try:
+            import json
+            v = json.loads(raw)
+            if isinstance(v, list):
+                return [str(x) for x in v]
+            return []
+        except Exception:
+            return []
+
+    async def update_kb_ids(self, session_id: str, kb_ids: List[str]) -> None:
+        await self.redis.init()
+        import json
+        payload = json.dumps([str(k) for k in kb_ids], ensure_ascii=False)
+        await self.redis.hset(self._session_key(session_id), {"kb_ids": payload})
         await self.touch_session(session_id)

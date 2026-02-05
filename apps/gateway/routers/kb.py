@@ -19,7 +19,8 @@ async def _proxy_request(request: Request, target_url: str) -> Response:
     logger.info(f"Proxying {request.method} {request.url} to {target_url}")
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        # trust_env=False：避免本机代理环境变量影响本地服务互调
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0, trust_env=False) as client:
             content = await request.body()
 
             req_headers = dict(request.headers)

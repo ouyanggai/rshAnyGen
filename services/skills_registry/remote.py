@@ -5,17 +5,29 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from .git_utils import git_clone, infer_execution_type, parse_skill_frontmatter
+from .git_utils import git_clone_with_options, infer_execution_type, parse_skill_frontmatter
 from .sources import SkillSource, normalize_repo_url
 
 
-def list_skills_in_source(source: SkillSource) -> list[dict]:
+def list_skills_in_source(
+    source: SkillSource,
+    *,
+    env: dict[str, str] | None = None,
+    timeout_seconds: int = 180,
+) -> list[dict]:
     repo_url = normalize_repo_url(source.repo_url)
     subdir = (source.subdir or "skills").strip().strip("/") or "skills"
 
     with tempfile.TemporaryDirectory(prefix="skills_source_index_") as tmp:
         tmp_repo = Path(tmp) / "repo"
-        git_clone(repo_url, tmp_repo, source.ref)
+        git_clone_with_options(
+            repo_url,
+            tmp_repo,
+            source.ref,
+            env=env,
+            timeout_seconds=timeout_seconds,
+            on_output=None,
+        )
 
         root = (tmp_repo / subdir).resolve()
         if not root.exists() or not root.is_dir():
@@ -56,4 +68,3 @@ def list_skills_in_source(source: SkillSource) -> list[dict]:
 
         items.sort(key=lambda x: (str(x.get("id") or ""), str(x.get("slug") or "")))
         return items
-

@@ -30,7 +30,7 @@ class KeycloakAdminClient:
             "client_secret": settings.keycloak_backend_client_secret,
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             resp = await client.post(self._token_url, data=data)
             resp.raise_for_status()
             token_data = resp.json()
@@ -59,7 +59,7 @@ class KeycloakAdminClient:
             "password": settings.keycloak_admin_password,
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
             resp = await client.post(self._master_token_url, data=data)
             resp.raise_for_status()
             token_data = resp.json()
@@ -80,7 +80,7 @@ class KeycloakAdminClient:
         headers["Content-Type"] = "application/json"
 
         url = f"{self._base}{path}"
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
             resp = await client.request(method, url, headers=headers, **kwargs)
             if resp.status_code == 403:
                 fallback = await self._get_master_admin_token()

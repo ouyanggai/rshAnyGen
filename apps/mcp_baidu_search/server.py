@@ -1,6 +1,7 @@
 """百度搜索 MCP Server"""
 import asyncio
 import json
+import sys
 from typing import List, Dict, Any
 from apps.shared.logger import LogManager
 
@@ -222,21 +223,52 @@ class MockBaiduSearchServer:
         self.log_manager.close()
 
 
-async def main():
-    """主函数：运行 MCP Server（简化版）"""
+async def serve_stdio():
+    """通过 stdio 运行 MCP Server（JSON-RPC）"""
     server = MockBaiduSearchServer()
+    loop = asyncio.get_event_loop()
 
-    try:
-        # 简化版：仅展示服务器可以正常创建和初始化
-        await server._initialize()
-        print("Baidu Search MCP Server started (mock mode)")
-        print("Available tools:", [tool["name"] for tool in server.tools])
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-        # 在实际实现中，这里会使用 stdio_server 来处理 JSON-RPC 通信
-        # 但为了测试目的，我们使用简化版本
+    writer = sys.stdout
+    await server._initialize()
 
-    finally:
-        server.close()
+    while True:
+        line = await reader.readline()
+        if not line:
+            break
+        raw = line.decode().strip()
+        if not raw:
+            continue
+        try:
+            request = json.loads(raw)
+            result = await server.handle_request(request)
+            response = {
+                "jsonrpc": "2.0",
+                "id": request.get("id"),
+                **result
+            }
+        except Exception as e:
+            response = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32000,
+                    "message": str(e)
+                }
+            }
+
+        writer.write(json.dumps(response, ensure_ascii=False) + "\n")
+        writer.flush()
+
+    server.close()
+
+
+async def main():
+    """主函数：运行 MCP Server"""
+    await serve_stdio()
 
 
 if __name__ == "__main__":

@@ -2,8 +2,10 @@
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,9 +16,10 @@ from typing import Dict, Any, Optional
 
 from ..loader import SkillLoader
 from ..executor import SkillExecutor
-from ..git_utils import ensure_execution_type, git_clone, parse_skill_frontmatter
+from ..git_utils import ensure_execution_type, git_clone_with_options, parse_skill_frontmatter
 from ..remote import list_skills_in_source
 from ..sources import DEFAULT_SOURCES, SkillSourcesService, SkillSourcesStore, normalize_repo_url
+from apps.shared.config_loader import ConfigLoader
 from apps.shared.redis_client import RedisOperations
 
 
@@ -40,11 +43,15 @@ app.add_middleware(
 loader = SkillLoader()
 executor = SkillExecutor(loader=loader)
 redis = RedisOperations()
+config = ConfigLoader()
 
 # 统一的启用/禁用存储：禁用集合（默认全部启用）
 DISABLED_SKILLS_KEY = "skills_registry:disabled"
 SOURCE_SKILLS_CACHE_KEY = "skills_registry:source_skills"
 SOURCE_SKILLS_CACHE_TTL_SECONDS = 6 * 60 * 60  # 6h
+INSTALL_JOBS_KEY_PREFIX = "skills_registry:install_jobs"
+INSTALL_JOB_TTL_SECONDS = 24 * 60 * 60  # 24h
+INSTALL_JOB_LOGS_MAX = 500
 
 # 用户技能目录（可卸载/可写）
 _HERE = Path(__file__).resolve()
@@ -70,6 +77,62 @@ def _source_cache_key(source_id: str, repo_url: str, ref: Optional[str], subdir:
     raw = f"{source_id}|{repo_url}|{ref or ''}|{subdir}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     return f"{SOURCE_SKILLS_CACHE_KEY}:{source_id}:{digest}"
+
+
+def _git_timeout_seconds() -> int:
+    try:
+        return int(config.get("skills_registry.git.clone_timeout_seconds", 180))
+    except Exception:
+        return 180
+
+
+def _git_env() -> dict[str, str]:
+    env = dict(os.environ)
+
+    def _get_env_proxy(*keys: str) -> str:
+        for key in keys:
+            val = os.environ.get(key)
+            if val is None:
+                continue
+            val = str(val).strip()
+            if val:
+                return val
+        return ""
+
+    http_proxy = str(config.get("network.proxy.http", "") or "").strip()
+    https_proxy = str(config.get("network.proxy.https", "") or "").strip()
+    all_proxy = str(config.get("network.proxy.all", "") or "").strip()
+    no_proxy = str(config.get("network.proxy.no_proxy", "") or "").strip()
+
+    if not http_proxy:
+        http_proxy = _get_env_proxy("HTTP_PROXY", "http_proxy")
+    if not https_proxy:
+        https_proxy = _get_env_proxy("HTTPS_PROXY", "https_proxy")
+    if not all_proxy:
+        all_proxy = _get_env_proxy("ALL_PROXY", "all_proxy")
+    if not no_proxy:
+        no_proxy = _get_env_proxy("NO_PROXY", "no_proxy")
+
+    def _set_proxy(key: str, val: str):
+        if not val:
+            return
+        env[key] = val
+        env[key.lower()] = val
+
+    _set_proxy("HTTP_PROXY", http_proxy)
+    _set_proxy("HTTPS_PROXY", https_proxy)
+    _set_proxy("ALL_PROXY", all_proxy)
+    _set_proxy("NO_PROXY", no_proxy)
+
+    # Avoid hanging on credential prompt
+    env.setdefault("GIT_TERMINAL_PROMPT", "0")
+
+    debug = bool(config.get("skills_registry.git.debug", False))
+    if debug:
+        env.setdefault("GIT_TRACE", "1")
+        env.setdefault("GIT_CURL_VERBOSE", "1")
+
+    return env
 
 
 # 请求/响应模型
@@ -177,6 +240,19 @@ class DeleteSkillResponse(BaseModel):
     moved_to: str
 
 
+class InstallJobInfo(BaseModel):
+    id: str
+    type: str
+    status: str
+    created_at: str
+    updated_at: str
+    request: Dict[str, Any]
+    context: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    logs: list[str] = []
+
+
 def _infer_execution_type(skill_info: dict) -> str:
     metadata = skill_info.get("metadata", {}) or {}
     execution_type = metadata.get("execution_type")
@@ -186,6 +262,48 @@ def _infer_execution_type(skill_info: dict) -> str:
     if api_file and getattr(api_file, "exists", None) and api_file.exists():
         return "function"
     return "prompt"
+
+
+def _job_meta_key(job_id: str) -> str:
+    return f"{INSTALL_JOBS_KEY_PREFIX}:{job_id}"
+
+
+def _job_logs_key(job_id: str) -> str:
+    return f"{INSTALL_JOBS_KEY_PREFIX}:{job_id}:logs"
+
+
+def _job_set(job: dict) -> None:
+    key = _job_meta_key(str(job.get("id") or ""))
+    redis.client.setex(key, INSTALL_JOB_TTL_SECONDS, json.dumps(job, ensure_ascii=False))
+
+
+def _job_get(job_id: str) -> dict:
+    raw = redis.client.get(_job_meta_key(job_id))
+    if not raw:
+        raise KeyError("Install job not found")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise KeyError("Install job not found")
+    return data
+
+
+def _job_append_log(job_id: str, line: str) -> None:
+    if line is None:
+        return
+    line = str(line).rstrip("\n")
+    if not line:
+        return
+    key = _job_logs_key(job_id)
+    redis.client.rpush(key, line)
+    redis.client.ltrim(key, -INSTALL_JOB_LOGS_MAX, -1)
+
+
+def _job_get_logs(job_id: str, tail: int) -> list[str]:
+    tail = int(tail or 0)
+    if tail <= 0:
+        tail = 200
+    tail = min(tail, INSTALL_JOB_LOGS_MAX)
+    return list(redis.client.lrange(_job_logs_key(job_id), -tail, -1))
 
 
 @app.get("/", tags=["Root"])
@@ -294,7 +412,13 @@ async def _get_source_skills_cached(source, refresh: bool) -> tuple[list[dict], 
             except Exception:
                 pass
 
-    items = await asyncio.to_thread(lambda: list_skills_in_source(source))
+    items = await asyncio.to_thread(
+        lambda: list_skills_in_source(
+            source,
+            env=_git_env(),
+            timeout_seconds=_git_timeout_seconds(),
+        )
+    )
     payload = {
         "skills": items,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -408,6 +532,29 @@ async def install_skill_from_source(source_id: str, request: InstallFromSourceRe
     return await install_skill(payload)
 
 
+@app.post("/api/v1/skill-sources/{source_id}/install-async", response_model=InstallJobInfo, tags=["Sources"])
+async def install_skill_from_source_async(source_id: str, request: InstallFromSourceRequest):
+    """从某个 Source 异步安装指定 skill（返回 job_id，用于前端轮询）。"""
+    try:
+        source = sources_service.get_source(source_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if not source.enabled:
+        raise HTTPException(status_code=400, detail="Source 已禁用")
+
+    payload = InstallSkillRequest(
+        repo_url=source.repo_url,
+        skill=request.slug,
+        subdir=source.subdir,
+        ref=source.ref,
+        overwrite=bool(request.overwrite),
+    )
+
+    job = await _start_install_job(payload, job_type="install_from_source", context={"source_id": source_id, "slug": request.slug})
+    return {**job, "logs": []}
+
+
 @app.get("/api/v1/skills/{skill_id}", tags=["Skills"])
 async def get_skill(skill_id: str):
     """获取单个 Skill 详情
@@ -456,67 +603,174 @@ async def toggle_skill(skill_id: str, request: ToggleSkillRequest):
     return await get_skill(skill_id)
 
 
+def _install_skill_sync(request: InstallSkillRequest, *, on_log=None) -> str:
+    USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    repo_url = normalize_repo_url(request.repo_url)
+    skill_slug = (request.skill or "").strip().strip("/")
+    if not skill_slug:
+        raise ValueError("skill 不能为空")
+    subdir = (request.subdir or "skills").strip().strip("/")
+    if not subdir:
+        subdir = "skills"
+
+    def _log(line: str):
+        if on_log:
+            on_log(line)
+
+    _log(f"开始安装: repo={repo_url} subdir={subdir} skill={skill_slug} ref={request.ref or ''}")
+
+    with tempfile.TemporaryDirectory(prefix="skills_install_") as tmp:
+        tmp_repo = Path(tmp) / "repo"
+        _log("git clone...")
+        git_clone_with_options(
+            repo_url,
+            tmp_repo,
+            request.ref,
+            env=_git_env(),
+            timeout_seconds=_git_timeout_seconds(),
+            on_output=on_log,
+        )
+
+        _log("git clone 完成")
+
+        _log("校验技能目录")
+        src_dir = (tmp_repo / subdir / skill_slug).resolve()
+        if not src_dir.exists() or not src_dir.is_dir():
+            raise ValueError(f"未找到技能目录: {subdir}/{skill_slug}")
+
+        _log("解析 SKILL.md")
+        skill_md = src_dir / "SKILL.md"
+        if not skill_md.exists():
+            raise ValueError("技能目录缺少 SKILL.md")
+
+        metadata = parse_skill_frontmatter(skill_md)
+        skill_id = (metadata.get("name") or "").strip()
+        if not skill_id:
+            raise ValueError("SKILL.md frontmatter 缺少 name")
+
+        _log("准备写入技能目录")
+        dest_dir = (USER_SKILLS_DIR / skill_id).resolve()
+        if dest_dir.exists() and not request.overwrite:
+            raise ValueError(f"技能已存在: {skill_id}")
+
+        if dest_dir.exists() and request.overwrite:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup_dir = (DELETED_SKILLS_DIR / f"{skill_id}__{ts}").resolve()
+            _log(f"覆盖安装：备份旧版本到 {backup_dir}")
+            shutil.move(str(dest_dir), str(backup_dir))
+
+        _log(f"复制文件到 {dest_dir}")
+        shutil.copytree(src_dir, dest_dir, dirs_exist_ok=request.overwrite)
+        ensure_execution_type(dest_dir)
+
+        origin = {
+            "repo_url": request.repo_url,
+            "normalized_repo_url": repo_url,
+            "ref": request.ref,
+            "subdir": subdir,
+            "skill": skill_slug,
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        (dest_dir / "origin.json").write_text(
+            json.dumps(origin, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        _log(f"安装完成: {skill_id}")
+        return skill_id
+
+
+async def _run_install_job(job_id: str, payload: InstallSkillRequest) -> None:
+    await redis.init()
+
+    def _log(line: str):
+        _job_append_log(job_id, line)
+
+    job = _job_get(job_id)
+    job["status"] = "running"
+    job["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _job_set(job)
+
+    try:
+        skill_id = await asyncio.to_thread(lambda: _install_skill_sync(payload, on_log=_log))
+        await redis.srem(DISABLED_SKILLS_KEY, skill_id)
+        result = await get_skill(skill_id)
+
+        job = _job_get(job_id)
+        job["status"] = "success"
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        job["result"] = {"skill_id": skill_id, "skill": result}
+        job["error"] = None
+        _job_set(job)
+        _log("Job success.")
+    except Exception as e:
+        _log(f"Job error: {e}")
+        job = _job_get(job_id)
+        job["status"] = "error"
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        job["error"] = str(e)
+        _job_set(job)
+
+
+async def _start_install_job(payload: InstallSkillRequest, *, job_type: str, context: dict | None = None) -> dict:
+    await redis.init()
+    job_id = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    job = {
+        "id": job_id,
+        "type": job_type,
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "request": payload.model_dump(),
+        "context": context or {},
+        "result": None,
+        "error": None,
+    }
+    _job_set(job)
+    redis.client.delete(_job_logs_key(job_id))
+    _job_append_log(job_id, "Job created.")
+
+    asyncio.create_task(_run_install_job(job_id, payload))
+    return job
+
+
+@app.post("/api/v1/skills/install-async", response_model=InstallJobInfo, tags=["Skills"])
+async def install_skill_async(request: InstallSkillRequest):
+    """异步安装 Skill：返回 job_id，前端可轮询获取进度日志。"""
+    try:
+        job = await _start_install_job(request, job_type="install_skill", context={})
+        return {**job, "logs": []}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/skills/install-jobs/{job_id}", response_model=InstallJobInfo, tags=["Skills"])
+async def get_install_job(job_id: str, tail: int = 200):
+    """获取安装 Job 状态与日志（tail 默认 200 行）。"""
+    await redis.init()
+    try:
+        job = _job_get(job_id)
+        logs = _job_get_logs(job_id, tail=tail)
+        return {**job, "logs": logs}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Install job not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/v1/skills/install", tags=["Skills"])
 async def install_skill(request: InstallSkillRequest):
     """从 Git 仓库安装 Skill 到 storage/skills（不修改内置 skills）"""
     USER_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     DELETED_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    def _sync_copy() -> str:
-        repo_url = normalize_repo_url(request.repo_url)
-        skill_slug = (request.skill or "").strip().strip("/")
-        if not skill_slug:
-            raise ValueError("skill 不能为空")
-        subdir = (request.subdir or "skills").strip().strip("/")
-        if not subdir:
-            subdir = "skills"
-
-        with tempfile.TemporaryDirectory(prefix="skills_install_") as tmp:
-            tmp_repo = Path(tmp) / "repo"
-            git_clone(repo_url, tmp_repo, request.ref)
-
-            src_dir = (tmp_repo / subdir / skill_slug).resolve()
-            if not src_dir.exists() or not src_dir.is_dir():
-                raise ValueError(f"未找到技能目录: {subdir}/{skill_slug}")
-
-            skill_md = src_dir / "SKILL.md"
-            if not skill_md.exists():
-                raise ValueError("技能目录缺少 SKILL.md")
-
-            metadata = parse_skill_frontmatter(skill_md)
-            skill_id = (metadata.get("name") or "").strip()
-            if not skill_id:
-                raise ValueError("SKILL.md frontmatter 缺少 name")
-
-            dest_dir = (USER_SKILLS_DIR / skill_id).resolve()
-            if dest_dir.exists() and not request.overwrite:
-                raise ValueError(f"技能已存在: {skill_id}")
-
-            if dest_dir.exists() and request.overwrite:
-                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                backup_dir = (DELETED_SKILLS_DIR / f"{skill_id}__{ts}").resolve()
-                shutil.move(str(dest_dir), str(backup_dir))
-
-            shutil.copytree(src_dir, dest_dir, dirs_exist_ok=request.overwrite)
-            ensure_execution_type(dest_dir)
-
-            origin = {
-                "repo_url": request.repo_url,
-                "normalized_repo_url": repo_url,
-                "ref": request.ref,
-                "subdir": subdir,
-                "skill": skill_slug,
-                "installed_at": datetime.now(timezone.utc).isoformat(),
-            }
-            (dest_dir / "origin.json").write_text(
-                json.dumps(origin, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-
-            return skill_id
-
     try:
-        skill_id = await asyncio.to_thread(_sync_copy)
+        skill_id = await asyncio.to_thread(lambda: _install_skill_sync(request, on_log=None))
         await redis.init()
         await redis.srem(DISABLED_SKILLS_KEY, skill_id)
         return await get_skill(skill_id)

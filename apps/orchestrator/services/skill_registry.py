@@ -24,6 +24,16 @@ class SkillsRegistryClient:
             logger.error(f"Error getting skill {skill_id}: {e}")
             raise
 
+    async def list_skills(self) -> Dict[str, Any]:
+        """List all skills"""
+        try:
+            response = await self.client.get("/api/v1/skills")
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error listing skills: {e}")
+            raise
+
     async def execute_skill(self, skill_id: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a skill"""
         try:

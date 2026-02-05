@@ -161,8 +161,8 @@ class RedisOperations:
                 port=port,
                 db=db,
                 decode_responses=True,
-                socket_connect_timeout=1,
-                socket_timeout=1,
+                socket_connect_timeout=5,
+                socket_timeout=5,
             )
             try:
                 client.ping()
@@ -196,6 +196,20 @@ class RedisOperations:
         value = self.client.lpop(key)
         if value is None:
             return None
+        return json.loads(value)
+
+    async def blpop_json(self, key: str, timeout: int = 0) -> Optional[Dict]:
+        """阻塞式从列表左端弹出 JSON 数据"""
+        # blpop returns (key, value) tuple or None
+        result = self.client.blpop(key, timeout=timeout)
+        if result is None:
+            return None
+        
+        # result is (key, value)
+        _, value = result
+        if value is None:
+            return None
+            
         return json.loads(value)
 
     async def llen(self, key: str) -> int:

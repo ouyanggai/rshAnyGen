@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import Layout from './components/layout/Layout';
 import ChatPage from './pages/ChatPage';
 import HistoryPage from './pages/HistoryPage';
@@ -9,29 +10,34 @@ import AdminLayout from './pages/admin/AdminLayout';
 import ModelConfig from './pages/admin/ModelConfig';
 import SkillsManagement from './pages/admin/SkillsManagement';
 import KnowledgeBase from './pages/admin/KnowledgeBase';
+import TokenMonitor from './pages/admin/TokenMonitor';
 import AuthGate from './components/auth/AuthGate';
 import AdminGate from './components/auth/AdminGate';
 
 function App() {
   return (
-    <Routes>
-      <Route path="/diagnostics" element={<AuthDiagnostics />} />
-      <Route path="/callback" element={<AuthCallback />} />
-      <Route path="/" element={<AuthGate><Layout /></AuthGate>}>
-        <Route index element={<ChatPage />} />
-        <Route path="history" element={<HistoryPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+    <>
+      <Toaster position="top-right" richColors closeButton />
+      <Routes>
+        <Route path="/diagnostics" element={<AuthDiagnostics />} />
+        <Route path="/callback" element={<AuthCallback />} />
+        <Route path="/" element={<AuthGate><Layout /></AuthGate>}>
+          <Route index element={<ChatPage />} />
+          <Route path="history" element={<HistoryPage />} />
+          <Route path="settings" element={<SettingsPage />} />
 
-        {/* 管理员路由 */}
-        <Route path="admin" element={<AdminGate><AdminLayout /></AdminGate>}>
-          <Route path="models" element={<ModelConfig />} />
-          <Route path="skills" element={<SkillsManagement />} />
-          <Route path="knowledge" element={<KnowledgeBase />} />
+          {/* 管理员路由 */}
+          <Route path="admin" element={<AdminGate><AdminLayout /></AdminGate>}>
+            <Route path="models" element={<ModelConfig />} />
+            <Route path="skills" element={<SkillsManagement />} />
+            <Route path="knowledge" element={<KnowledgeBase />} />
+            <Route path="tokens" element={<TokenMonitor />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }
 

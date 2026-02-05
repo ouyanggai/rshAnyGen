@@ -16,7 +16,23 @@ class MCPToolExecutor:
 
     async def run(self, skill_info: Dict[str, Any], args: dict, context: dict) -> Any:
         """执行 MCP 工具调用"""
-        raise NotImplementedError("MCP tool executor not implemented yet")
+        from apps.mcp_manager.manager import MCPManager
+
+        metadata = skill_info.get("metadata", {}) or {}
+        mcp_config = metadata.get("mcp", {}) or {}
+        server_name = mcp_config.get("server") or metadata.get("mcp_server")
+        tool_name = mcp_config.get("tool") or metadata.get("mcp_tool")
+
+        if not server_name or not tool_name:
+            raise ValueError("Missing MCP configuration in SKILL.md (mcp.server / mcp.tool)")
+
+        manager = MCPManager()
+        try:
+            await manager.connect_server(server_name)
+            result = await manager.call_tool(server_name, tool_name, args)
+            return result
+        finally:
+            await manager.disconnect_all()
 
 
 class HTTPAPIExecutor:
@@ -27,7 +43,30 @@ class HTTPAPIExecutor:
 
     async def run(self, skill_info: Dict[str, Any], args: dict, context: dict) -> Any:
         """执行 HTTP API 调用"""
-        raise NotImplementedError("HTTP API executor not implemented yet")
+        import httpx
+
+        metadata = skill_info.get("metadata", {}) or {}
+        http_config = metadata.get("http", {}) or {}
+
+        method = (http_config.get("method") or "POST").upper()
+        url = http_config.get("url")
+        headers = http_config.get("headers") or {}
+        timeout = http_config.get("timeout", 30000) / 1000.0
+
+        if not url:
+            raise ValueError("Missing HTTP configuration in SKILL.md (http.url)")
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            if method in ("GET", "DELETE"):
+                response = await client.request(method, url, params=args, headers=headers)
+            else:
+                response = await client.request(method, url, json=args, headers=headers)
+
+            response.raise_for_status()
+            try:
+                return response.json()
+            except Exception:
+                return response.text
 
 
 class PythonFunctionExecutor:
@@ -62,6 +101,32 @@ class PythonFunctionExecutor:
         result = invoke_func(args, context)
 
         return result
+
+
+class PromptExecutor:
+    """Prompt/说明类 Skill 执行器（仅返回 SKILL.md 内容供 LLM 遵循）"""
+
+    def __init__(self, config):
+        self.config = config
+
+    async def run(self, skill_info: Dict[str, Any], args: dict, context: dict) -> Any:
+        skill_md: Optional[Path] = skill_info.get("skill_md")
+        if not skill_md or not skill_md.exists():
+            # 兼容旧数据结构
+            skill_path = skill_info.get("path")
+            if skill_path:
+                candidate = Path(skill_path) / "SKILL.md"
+                if candidate.exists():
+                    skill_md = candidate
+
+        if not skill_md or not skill_md.exists():
+            raise ValueError("SKILL.md not found for prompt skill")
+
+        return {
+            "instructions_markdown": skill_md.read_text(encoding="utf-8"),
+            "args": args or {},
+            "context": context or {},
+        }
 
 
 class SkillExecutor:
@@ -107,7 +172,13 @@ class SkillExecutor:
                 raise ValueError(f"Skill not found: {skill_name}")
 
             # 获取执行类型
-            execution_type = skill_info["metadata"].get("execution_type", "function")
+            execution_type = (skill_info.get("metadata", {}) or {}).get("execution_type")
+            if not execution_type:
+                api_file = skill_info.get("api_file")
+                if api_file and api_file.exists():
+                    execution_type = "function"
+                else:
+                    execution_type = "prompt"
 
             # 创建对应的执行器
             if execution_type == "function":
@@ -116,6 +187,8 @@ class SkillExecutor:
                 executor = MCPToolExecutor(config=None)
             elif execution_type == "http_api":
                 executor = HTTPAPIExecutor(config=None)
+            elif execution_type == "prompt":
+                executor = PromptExecutor(config=None)
             else:
                 raise ValueError(f"Unsupported execution type: {execution_type}")
 

@@ -41,6 +41,15 @@ class TokenResponse(BaseModel):
     refresh_expires_in: Optional[int] = None
 
 
+class PermissionDetail(BaseModel):
+    """权限详情"""
+    name: str
+    displayName: Optional[str] = None
+    resources: list = []
+    actions: list = []
+    effect: str
+
+
 class UserInfoResponse(BaseModel):
     """用户信息响应"""
     sub: str
@@ -48,6 +57,9 @@ class UserInfoResponse(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
     roles: list = []
+    isAdmin: bool = False
+    permissions: list = []
+    permission_details: list[PermissionDetail] = []
 
 
 @router.get("/login-url")
@@ -90,7 +102,7 @@ async def sso_logout(request: Request):
     if not auth_header:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
         try:
             response = await client.post(SSO_LOGOUT_URL, headers={"Authorization": auth_header})
             response.raise_for_status()
@@ -112,7 +124,7 @@ async def exchange_code(code: str, redirect_uri: str = REDIRECT_URI):
         "redirect_uri": redirect_uri,
     }
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
         try:
             # Casdoor access_token endpoint often uses POST form or query params
             # Let's try POST json first, or form
@@ -148,17 +160,84 @@ async def get_userinfo(request: Request):
     if not auth_header:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
         try:
+            # 1. Get User Info
             response = await client.get(USERINFO_URL, headers={"Authorization": auth_header})
             response.raise_for_status()
             data = response.json()
+            logger.info(f"Userinfo from Casdoor: {data}")
+            
+            permissions = data.get("permissions") or []
+            roles = data.get("roles") or []
+            is_admin = data.get("isAdmin", False) or data.get("is_admin", False)
+
+            # 确保管理员角色存在
+            if is_admin and "admin" not in roles:
+                roles.append("admin")
+
+            permission_details = []
+
+            # 2. If user has permissions, fetch detailed definitions
+            if permissions:
+                try:
+                    # Casdoor API to get all permissions for the organization
+                    # Using Client Credentials (Basic Auth)
+                    perms_url = f"{CASDOOR_ENDPOINT}/api/get-permissions"
+                    
+                    # Need to use the organization name configured
+                    org_name = settings.casdoor_organization_name
+                    
+                    perms_resp = await client.get(
+                        perms_url, 
+                        params={"owner": org_name},
+                        auth=(CLIENT_ID, CLIENT_SECRET)
+                    )
+                    
+                    if perms_resp.status_code == 200:
+                        all_perms = perms_resp.json()
+                        if isinstance(all_perms, dict) and "data" in all_perms:
+                             # Some Casdoor versions wrap list in {"status": "ok", "data": [...]}
+                             all_perms = all_perms["data"]
+                        
+                        if isinstance(all_perms, list):
+                            # Filter permissions that match the user's permission names
+                            # The 'name' in permission object is usually just the name, but sometimes 'owner/name'
+                            # The userinfo 'permissions' usually contains just names or 'owner/name'. 
+                            # Let's assume names match or check both.
+                            
+                            # Create a map for faster lookup
+                            perm_map = {p.get("name"): p for p in all_perms}
+                            
+                            for p_name in permissions:
+                                # Handle potential 'owner/name' format in p_name
+                                simple_name = p_name.split("/")[-1] if "/" in p_name else p_name
+                                
+                                # Try exact match or simple name match
+                                matched_perm = perm_map.get(p_name) or perm_map.get(simple_name)
+                                
+                                if matched_perm:
+                                    permission_details.append(PermissionDetail(
+                                        name=matched_perm.get("name"),
+                                        displayName=matched_perm.get("displayName"),
+                                        resources=matched_perm.get("resources") or [],
+                                        actions=matched_perm.get("actions") or [],
+                                        effect=matched_perm.get("effect") or "Allow"
+                                    ))
+                except Exception as e:
+                    logger.error(f"Failed to fetch permission details: {e}")
+                    # Don't fail the whole request if details fetch fails
+                    pass
+
             return UserInfoResponse(
                 sub=str(data.get("id") or data.get("sub") or ""),
                 username=data.get("name") or data.get("username") or "",
                 email=data.get("email"),
                 name=data.get("displayName") or data.get("name"),
-                roles=data.get("roles") or [],
+                roles=roles,
+                isAdmin=is_admin,
+                permissions=permissions,
+                permission_details=permission_details,
             )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:

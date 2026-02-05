@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useState } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../hooks/useTheme';
+import { createSession } from '../../api/sessions';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 import {
   ChatBubbleLeftRightIcon,
   ClockIcon,
@@ -15,44 +18,48 @@ import {
   SunIcon,
   PlusIcon,
   SparklesIcon,
-  InformationCircleIcon
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 
+function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
+
 const navItems = [
-  { to: '/', icon: ChatBubbleLeftRightIcon, label: '聊天' },
-  { to: '/history', icon: ClockIcon, label: '历史' },
-  { to: '/settings', icon: Cog6ToothIcon, label: '设置' },
-  { to: '/diagnostics', icon: InformationCircleIcon, label: '诊断' },
+  { to: '/', icon: ChatBubbleLeftRightIcon, label: '对话' },
+  { to: '/history', icon: ClockIcon, label: '历史记录' },
+  { to: '/settings', icon: Cog6ToothIcon, label: '系统设置' },
 ];
 
 const adminNavItems = [
   { to: '/admin/models', icon: BeakerIcon, label: '模型配置' },
-  { to: '/admin/skills', icon: WrenchIcon, label: '技能管理' },
+  { to: '/admin/skills', icon: WrenchIcon, label: '技能中心' },
   { to: '/admin/knowledge', icon: BookOpenIcon, label: '知识库' },
+  { to: '/admin/tokens', icon: ChartBarIcon, label: 'Token 监控' },
 ];
 
 function SidebarItem({ to, icon: Icon, label, collapsed }) {
-  const location = useLocation();
-  const isActive = location.pathname === to || location.pathname.startsWith(to + '/');
-
   return (
     <NavLink
       to={to}
-      className={`
-        flex items-center px-3 py-3 rounded-xl cursor-pointer
-        transition-all duration-200 font-medium select-none group
-        ${collapsed ? 'justify-center' : ''}
-        ${isActive
-          ? 'bg-gradient-to-r from-primary/20 to-secondary/10 text-primary dark:text-primary-400'
-          : 'text-text-secondary dark:text-text-secondary-dark hover:bg-bg-tertiary dark:hover:bg-white/5 hover:text-text-primary dark:hover:text-text-primary-dark'
-        }
-      `}
+      className={({ isActive }) =>
+        cn(
+          'relative flex items-center rounded-lg cursor-pointer select-none group transition-all duration-200',
+          'px-3 py-2 text-sm font-medium',
+          collapsed ? 'justify-center' : '',
+          isActive
+            ? 'bg-zinc-100 dark:bg-white/10 text-foreground'
+            : 'text-muted-foreground hover:bg-zinc-50 dark:hover:bg-white/5 hover:text-foreground'
+        )
+      }
       title={collapsed ? label : ''}
     >
-      <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${isActive ? 'text-primary dark:text-primary-400' : 'text-text-muted group-hover:text-text-primary dark:text-text-muted dark:group-hover:text-text-primary-dark'}`} />
-      <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${collapsed ? 'w-0 opacity-0' : 'w-auto opacity-100 ml-3'}`}>
-        {label}
-      </span>
+      <Icon className="w-5 h-5 flex-shrink-0" />
+      {!collapsed && (
+        <span className="ml-3 truncate transition-all duration-300">
+          {label}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -62,128 +69,103 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   const isAdmin = user?.isAdmin || false;
   const navigate = useNavigate();
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+
+  const handleNewChat = async () => {
+    if (isCreatingSession) return;
+    setIsCreatingSession(true);
+    try {
+      await createSession('新会话');
+    } catch (e) {
+      console.error('Failed to create session', e);
+    } finally {
+      setIsCreatingSession(false);
+      navigate('/');
+    }
+  };
 
   return (
     <aside
-      className={`
-        flex flex-col h-full 
-        bg-white dark:bg-bg-card-dark 
-        border-r border-border dark:border-border-dark
-        transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]
-        shadow-elevation-2 z-20
-        overflow-hidden whitespace-nowrap
-        ${sidebarCollapsed ? 'w-20' : 'w-64'}
-      `}
+      className={cn(
+        'flex flex-col h-full z-30',
+        'bg-background/80 backdrop-blur-xl border-r border-border',
+        'transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]',
+        sidebarCollapsed ? 'w-[72px]' : 'w-[280px]'
+      )}
     >
-      {/* Logo Area */}
-      <div className={`flex items-center px-5 py-6 mb-2 h-[88px] transition-all duration-300 ${sidebarCollapsed ? 'justify-center' : 'justify-start'}`}>
-        <div 
-          className="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-glow-sm flex-shrink-0 cursor-pointer z-10"
-          onClick={sidebarCollapsed ? toggleSidebar : undefined}
-        >
-           {sidebarCollapsed ? <span className="text-white font-bold text-xs">RSH</span> : <SparklesIcon className="w-6 h-6 text-white" />}
-        </div>
-        
-        <div className={`flex flex-col overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-32 opacity-100 ml-3'}`}>
-          <span className="font-heading font-bold text-lg text-text-primary dark:text-text-primary-dark tracking-tight leading-tight">润小华</span>
-          <span className="text-[10px] font-bold tracking-widest text-primary uppercase">Version 2.0</span>
+      {/* 1. Header Area */}
+      <div className="h-16 flex items-center justify-between px-4 border-b border-border/50">
+        <div className={cn("flex items-center gap-3 overflow-hidden transition-all duration-300", sidebarCollapsed ? "w-full justify-center" : "w-full")}>
+           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center flex-shrink-0 shadow-sm text-white">
+             <SparklesIcon className="w-5 h-5" />
+           </div>
+           {!sidebarCollapsed && (
+             <div className="flex flex-col">
+               <span className="font-semibold text-sm leading-none">润小华</span>
+               <span className="text-[10px] text-muted-foreground mt-1">Enterprise AI</span>
+             </div>
+           )}
         </div>
       </div>
 
-      {/* New Chat Button */}
-      <div className={`px-4 mb-6 transition-all duration-300 ${sidebarCollapsed ? 'px-2' : ''}`}>
+      {/* 2. New Chat Action */}
+      <div className="p-3">
         <button
-          onClick={() => navigate('/')}
-          className={`
-            w-full flex items-center justify-center
-            bg-gradient-to-r from-primary to-secondary 
-            hover:shadow-glow-md active:scale-[0.98]
-            text-white rounded-xl transition-all duration-200
-            ${sidebarCollapsed ? 'p-3 aspect-square' : 'py-3.5 px-4'}
-          `}
+          onClick={handleNewChat}
+          disabled={isCreatingSession}
+          className={cn(
+            'w-full flex items-center justify-center',
+            'rounded-lg transition-all duration-200',
+            'bg-gradient-to-r from-[#007AFF] to-[#00B388] text-white shadow-sm', // Keeping the requested gradient
+            'hover:shadow-md hover:opacity-95 active:scale-[0.98]',
+            sidebarCollapsed ? 'h-10 w-10 p-0' : 'h-10 px-4 gap-2'
+          )}
           title="新建对话"
         >
-          <PlusIcon className="w-5 h-5 flex-shrink-0" />
-          <span className={`font-semibold overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100 ml-2'}`}>新建对话</span>
+          <PlusIcon className="w-5 h-5" />
+          {!sidebarCollapsed && <span className="font-medium text-sm">新建对话</span>}
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-8 overflow-y-auto scrollbar-none overflow-x-hidden">
-        {/* Main Nav */}
-        <div className="space-y-1.5">
-          <div className={`px-3 text-xs font-semibold text-text-muted dark:text-text-muted/60 uppercase tracking-wider mb-2 overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'h-0 opacity-0 mb-0' : 'h-auto opacity-100'}`}>Menu</div>
+      {/* 3. Navigation Areas */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 p-3 space-y-6">
+        
+        {/* Main Menu */}
+        <div className="space-y-1">
+          {!sidebarCollapsed && <div className="px-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">工作区</div>}
           {navItems.map((item) => (
-            <SidebarItem
-              key={item.to}
-              to={item.to}
-              icon={item.icon}
-              label={item.label}
-              collapsed={sidebarCollapsed}
-            />
+            <SidebarItem key={item.to} {...item} collapsed={sidebarCollapsed} />
           ))}
         </div>
 
-        {/* Admin Nav */}
+        {/* Admin Menu */}
         {isAdmin && (
-          <div className="space-y-1.5">
-            <div className={`px-3 text-xs font-semibold text-text-muted dark:text-text-muted/60 uppercase tracking-wider mb-2 overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'h-0 opacity-0 mb-0' : 'h-auto opacity-100'}`}>Admin</div>
-            {adminNavItems.map((item) => (
-              <SidebarItem
-                key={item.to}
-                to={item.to}
-                icon={item.icon}
-                label={item.label}
-                collapsed={sidebarCollapsed}
-              />
-            ))}
+          <div className="space-y-1">
+             {!sidebarCollapsed && <div className="px-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">管理后台</div>}
+             {adminNavItems.map((item) => (
+               <SidebarItem key={item.to} {...item} collapsed={sidebarCollapsed} />
+             ))}
           </div>
         )}
-      </nav>
+      </div>
 
-      {/* Bottom Actions */}
-      <div className="p-4 border-t border-border dark:border-border-dark bg-bg-primary/30 dark:bg-black/10 backdrop-blur-sm">
-        <div className={`flex flex-col gap-2 ${sidebarCollapsed ? 'items-center' : ''}`}>
-          
-          {/* Theme Toggle */}
+      {/* 4. Bottom Actions (Footer) */}
+      <div className="p-3 border-t border-border/50 bg-background/50 backdrop-blur-sm">
+        <div className={cn("flex items-center gap-1", sidebarCollapsed ? "flex-col" : "justify-between")}>
           <button
             onClick={toggleTheme}
-            className={`
-              flex items-center p-2.5 rounded-xl
-              text-text-secondary dark:text-text-secondary-dark
-              hover:bg-white dark:hover:bg-white/10 hover:text-primary dark:hover:text-primary-400
-              hover:shadow-sm transition-all duration-200
-              ${sidebarCollapsed ? 'justify-center w-full aspect-square' : ''}
-            `}
-            title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
+            className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+            title="切换主题"
           >
-            {theme === 'light' ? (
-              <MoonIcon className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <SunIcon className="w-5 h-5 flex-shrink-0" />
-            )}
-            <span className={`font-medium overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100 ml-3'}`}>
-              {theme === 'light' ? '深色模式' : '浅色模式'}
-            </span>
+            {theme === 'light' ? <MoonIcon className="w-5 h-5" /> : <SunIcon className="w-5 h-5" />}
           </button>
-
-          {/* Collapse Toggle */}
+          
           <button
             onClick={toggleSidebar}
-            className={`
-              flex items-center p-2.5 rounded-xl
-              text-text-secondary dark:text-text-secondary-dark
-              hover:bg-white dark:hover:bg-white/10 hover:text-primary dark:hover:text-primary-400
-              hover:shadow-sm transition-all duration-200
-              ${sidebarCollapsed ? 'justify-center w-full aspect-square' : ''}
-            `}
+            className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+            title={sidebarCollapsed ? "展开" : "收起"}
           >
-            {sidebarCollapsed ? (
-              <ChevronRightIcon className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <ChevronLeftIcon className="w-5 h-5 flex-shrink-0" />
-            )}
-            <span className={`font-medium overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100 ml-3'}`}>收起侧边栏</span>
+            {sidebarCollapsed ? <ChevronRightIcon className="w-5 h-5" /> : <ChevronLeftIcon className="w-5 h-5" />}
           </button>
         </div>
       </div>

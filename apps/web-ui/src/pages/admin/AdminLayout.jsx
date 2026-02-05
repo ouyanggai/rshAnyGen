@@ -1,10 +1,11 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { BeakerIcon, WrenchIcon, BookOpenIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { BeakerIcon, WrenchIcon, BookOpenIcon, ArrowLeftIcon, ChartBarIcon } from '@heroicons/react/24/outline';
 
 const adminNavItems = [
   { to: '/admin/models', icon: BeakerIcon, label: '模型配置' },
   { to: '/admin/skills', icon: WrenchIcon, label: '技能管理' },
   { to: '/admin/knowledge', icon: BookOpenIcon, label: '知识库' },
+  { to: '/admin/tokens', icon: ChartBarIcon, label: 'Token监控' },
 ];
 
 export default function AdminLayout() {

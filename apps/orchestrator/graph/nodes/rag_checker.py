@@ -24,6 +24,7 @@ async def rag_checker(state: AgentState) -> AgentState:
         更新后的状态
     """
     query = state.get("user_message")
+    kb_ids = state.get("kb_ids", [])
 
     if not query:
         state["rag_has_relevant"] = False
@@ -35,7 +36,7 @@ async def rag_checker(state: AgentState) -> AgentState:
         client = RAGPipelineClient()
         try:
             # 搜索更多结果，避免漏掉相关内容
-            results = await client.search(query, top_k=10)
+            results = await client.search(query, top_k=10, kb_ids=kb_ids)
 
             # 检查是否有相关结果
             has_relevant = False

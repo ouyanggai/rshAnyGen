@@ -43,6 +43,11 @@ async def intent_classifier(state: AgentState) -> AgentState:
         state["intent"] = "chat"
         return state
 
+    if state.get("enable_search"):
+        state["intent"] = "search"
+        logger.info(f"Intent forced to search (enable_search) for session {state['session_id']}")
+        return state
+
     try:
         if await _should_use_knowledge(user_message):
             state["intent"] = "knowledge"
